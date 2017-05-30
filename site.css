@@ -83,15 +83,16 @@ body {
   background: #eee;
 }
 
-header footer {
+header, footer {
     background: #333;
     color: #eee;
     padding: 20px;
+    font-size: 14px;
 }
 
-header footer a { color: #ffcc33; }
+header, footer a { color: #ffcc33; }
 
-header footer a:hover { color: #eee; }
+header, footer a:hover { color: #eee; }
 
 header {
   margin-bottom: 20px;
@@ -121,13 +122,6 @@ footer {
   width: 100%;
 }
 
-footer {
-  padding-top: 20px;
-  padding-bottom: 5px;
-  margin-top: 20px;
-  font-size: 13px;
-}
-
 a {
   color: #d5000d;
 }
@@ -136,7 +130,34 @@ a:hover {
   color: #c5000c;
 }
 
-#container { min-height: 595px; background: transparent url(../images/highlight-bg.jpg) 50% 0 no-repeat; }
+.navbar {
+  width: 85%;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.navbar ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.navbar li {
+    float: right;
+    list-style: none;
+}
+
+.navbar li a {
+    display: block;
+    text-align: center;
+    padding: 10px;
+    text-decoration: none;
+}
+
+#container {
+  min-height: 595px;
+}
 
 .inner {
   width: 85%;
