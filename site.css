@@ -90,6 +90,12 @@ a:hover {
   color: #333;
 }
 
+header {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  font-size: 18px;
+}
+
 header, footer {
     background: #333;
     color: #eee;
@@ -100,11 +106,7 @@ header, footer a { color: #ffcc33; }
 
 header, footer a:hover { color: #eee; }
 
-header {
-  margin-top: 10px;
-  margin-bottom: 10px;
-  font-size: 18px;
-}
+
 
 header h1 {
   font-family: 'Chivo', 'Helvetica Neue', Helvetica, Arial, serif;
@@ -157,6 +159,10 @@ footer {
     text-decoration: none;
 }
 
+.navbar a:hover {
+  color: #eee;
+}
+
 #container {
   width: 100%;
   height: 100%;
@@ -167,7 +173,19 @@ footer {
   margin: 0 auto;
 }
 
-#container .inner img { max-width: 100%; }
+#sidebar {
+  float: left;
+  clear: left;
+  text-align: right;
+  max-width: 150px;
+}
+
+#content {
+  float: right;
+  clear: right;
+  margin-left: 160px;
+  border-left: 1px solid #aaa;
+}
 
 code, pre { margin-bottom: 30px; font-family: Monaco, "Bitstream Vera Sans Mono", "Lucida Console", Terminal; font-size: 14px; color: #222; }
 
