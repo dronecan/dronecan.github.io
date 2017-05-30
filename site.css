@@ -2,7 +2,6 @@
 layout: nil
 ---
 
-
 .highlight table td { padding: 5px; }
 
 .highlight table pre { margin: 0; }
@@ -83,11 +82,18 @@ body {
   background: #eee;
 }
 
+a {
+  color: #ffcc33;
+}
+
+a:hover {
+  color: #333;
+}
+
 header, footer {
     background: #333;
     color: #eee;
     padding: 20px;
-    font-size: 14px;
 }
 
 header, footer a { color: #ffcc33; }
@@ -95,7 +101,9 @@ header, footer a { color: #ffcc33; }
 header, footer a:hover { color: #eee; }
 
 header {
-  margin-bottom: 20px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  font-size: 18px;
 }
 
 header h1 {
@@ -103,7 +111,7 @@ header h1 {
   font-size: 48px;
   font-weight: 900;
   line-height: 1.2;
-  color: #303030;
+  color: #333;
   letter-spacing: -1px;
 }
 
@@ -116,24 +124,17 @@ header h2 {
 }
 
 footer {
-  margin-top: 20px;
+  margin-top: 10px;
+  margin-bottom: 10px;
   position: absolute;
   bottom: 0px;
   width: 100%;
-}
-
-a {
-  color: #d5000d;
-}
-
-a:hover {
-  color: #c5000c;
+  font-size: 14px;
 }
 
 .navbar {
   width: 85%;
-  padding-left: 20px;
-  padding-right: 20px;
+  margin: 0 auto;
 }
 
 .navbar ul {
@@ -151,22 +152,22 @@ a:hover {
 .navbar li a {
     display: block;
     text-align: center;
-    padding: 10px;
+    padding-left: 10px;
+    padding-right: 10px;
     text-decoration: none;
 }
 
 #container {
-  min-height: 595px;
+  width: 100%;
+  height: 100%;
 }
 
 .inner {
-  width: 85%;
+  width: 80%;
   margin: 0 auto;
 }
 
 #container .inner img { max-width: 100%; }
-
-#downloads { margin-bottom: 40px; }
 
 code, pre { margin-bottom: 30px; font-family: Monaco, "Bitstream Vera Sans Mono", "Lucida Console", Terminal; font-size: 14px; color: #222; }
 
