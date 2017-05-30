@@ -1,3 +1,3 @@
 ## DroneCAN
 
-WIP
+Coming soon
