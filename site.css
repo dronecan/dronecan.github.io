@@ -181,8 +181,9 @@ footer {
 }
 
 #content {
-  float: right;
+  float: left;
   clear: right;
+  padding-left: 10px;
   margin-left: 160px;
   border-left: 1px solid #aaa;
 }
