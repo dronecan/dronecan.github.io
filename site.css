@@ -91,6 +91,9 @@ a:hover {
 }
 
 header {
+  position: fixed;
+  width: 100%;
+  top: 0px;
   margin-top: 10px;
   margin-bottom: 10px;
   font-size: 18px;
@@ -127,7 +130,6 @@ header h2 {
 footer {
   margin-top: 10px;
   margin-bottom: 10px;
-  position: absolute;
   bottom: 0px;
   width: 100%;
   font-size: 14px;
