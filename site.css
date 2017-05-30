@@ -97,16 +97,15 @@ header {
 }
 
 header, footer {
-    background: #333;
+    background: #245;
     color: #eee;
-    padding: 20px;
+    padding-top: 20px;
+    padding-bottom: 20px;
 }
 
-header, footer a { color: #ffcc33; }
+header, footer a { color: #fc3; }
 
 header, footer a:hover { color: #eee; }
-
-
 
 header h1 {
   font-family: 'Chivo', 'Helvetica Neue', Helvetica, Arial, serif;
@@ -180,7 +179,7 @@ footer {
   max-width: 150px;
 }
 
-#content {
+#content-right {
   float: left;
   clear: right;
   padding-left: 10px;
