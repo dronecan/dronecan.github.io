@@ -168,6 +168,10 @@ footer {
   margin: 0 auto;
 }
 
+.navbar select {
+  display: none;
+}
+
 .navbar ul {
     list-style-type: none;
     margin: 0;
@@ -270,14 +274,9 @@ ol li { list-style-position: inside; list-style: decimal; padding-left: 3px; }
 
 dl dt { color: #303030; }
 
-/* #Media Queries
-================================================== */
-/* Smaller than standard 960 (devices and browsers) */
-/* Tablet Portrait size to standard 960 (devices and browsers) */
-/* All Mobile Sizes (devices and browser) */
-@media only screen and (max-width: 767px) { header { padding-top: 10px; padding-bottom: 10px; }
-  #downloads { margin-bottom: 25px; }
-  #download-zip, #download-tar-gz { display: none; }
+@media (max-width: 960px) {
+  header { padding-top: 10px; padding-bottom: 10px; }
+  nav ul     { display: none; }
+  nav select { display: inline-block; }
   .inner { width: 94%; margin: 0 auto; } }
-/* Mobile Landscape Size to Tablet Portrait (devices and browsers) */
-/* Mobile Portrait Size to Mobile Landscape Size (devices and browsers) */
+}
