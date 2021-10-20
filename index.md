@@ -8,7 +8,7 @@ DroneCAN was created to continue the development of the widely used [UAVCAN](htt
 
 ## Key Features
 
-The first version of DroneCAN, known as DroneCAN v1, is idential to the existing UAVCAN v0.9 protocol. This means that the large number of existing UAVCAN v0.9 devices used throughout the drone industry are already DroneCAN v1 compliant. Features inherited from UAVCAN v0.9 include:
+The first version of DroneCAN, known as DroneCAN v1, is identical to the existing UAVCAN v0.9 protocol. This means that the large number of existing UAVCAN v0.9 devices used throughout the drone industry are already DroneCAN v1 compliant. Features inherited from UAVCAN v0.9 include:
  - detailed protocol specification
  - DSDL message description language for message description
  - DNA (dynamic node allocation) for assignment of CAN node IDs
@@ -48,3 +48,8 @@ The DroneCAN project has an active development community.
     <td><img src="image/Hitec.jpg" alt="Hitec" width="256px"></td>
    </tr>
 </table>
+
+## Joining DroneCAN
+
+If you would like to publicly support the DroneCAN project then please
+fill in the [application form](https://dronecan.org/apply)
