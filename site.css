@@ -79,7 +79,7 @@ body {
   font-size: 1em;
   line-height: 1.5;
   color: #333;
-  background: #eee;
+  background: #fff;
 }
 
 a {
@@ -92,14 +92,14 @@ a:hover {
 
 header, footer {
     background: #245;
-    color: #eee;
+    color: #fff;
     padding-top: 20px;
     padding-bottom: 20px;
 }
 
 header, footer a { color: #fc3; }
 
-header, footer a:hover { color: #eee; }
+header, footer a:hover { color: #fff; }
 
 header {
   position: fixed;
@@ -193,7 +193,7 @@ footer {
 }
 
 .navbar a:hover {
-  color: #eee;
+  color: #fff;
 }
 
 #container {
@@ -239,11 +239,14 @@ strong { font-weight: bold; }
 
 em { font-style: italic; }
 
-table { width: 100%; border: 1px solid #ebebeb; }
+table { width: 100%; border: none; }
+
+table { background-color: #fff; }
 
 th { font-weight: 500; }
 
-td { font-weight: 300; text-align: center; border: 1px solid #ebebeb; }
+td { font-weight: 300; text-align: center; border: none; vertical-align: middle; }
+tr { font-weight: 300; text-align: center; border: none; vertical-align: middle; }
 
 form { padding: 20px; background: #f2f2f2; }
 
