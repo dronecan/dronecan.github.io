@@ -79,7 +79,7 @@ body {
   font-size: 1em;
   line-height: 1.5;
   color: #333;
-  background: #fff;
+  background: #ccc;
 }
 
 a {
@@ -92,14 +92,14 @@ a:hover {
 
 header, footer {
     background: #245;
-    color: #fff;
+    color: #ccc;
     padding-top: 20px;
     padding-bottom: 20px;
 }
 
 header, footer a { color: #fc3; }
 
-header, footer a:hover { color: #fff; }
+header, footer a:hover { color: #ccc; }
 
 header {
   position: fixed;
@@ -193,7 +193,7 @@ footer {
 }
 
 .navbar a:hover {
-  color: #fff;
+  color: #ccc;
 }
 
 #container {
@@ -224,7 +224,7 @@ footer {
 
 code, pre { margin-bottom: 30px; font-family: Monaco, "Bitstream Vera Sans Mono", "Lucida Console", Terminal; font-size: 14px; color: #222; }
 
-code { padding: 0 3px; background-color: #f2f2f2; border: solid 1px #ddd; }
+code { padding: 0 3px; background-color: #f2f2f2; border: solid 1px #ccc; }
 
 pre { padding: 20px; overflow: auto; color: #f2f2f2; text-shadow: none; background: #303030; }
 
@@ -241,7 +241,7 @@ em { font-style: italic; }
 
 table { width: 100%; border: none; }
 
-table { background-color: #fff; }
+table { background-color: #ccc; }
 
 th { font-weight: 500; }
 
