@@ -4,7 +4,12 @@ DroneCAN is the primary CAN protocol used by the ArduPilot and PX4 projects for 
 
 ## Relationship with UAVCAN
 
-DroneCAN was created to continue the development of the widely used [UAVCAN](https://uavcan.org/) v0.9 protocol. This protocol has proven itself as robust and feature rich and has been widely deployed in the commercial drone industry and enjoys broad support among industry partners. The proposed introduction of the UAVCAN v1 protocol involved changes to UAVCAN that made it much less suitable for use in UAVs and did not offer a smooth migration path for existing deployments. After extended discussions within the UAVCAN consortium it was decided that the best solution was to continue development of UAVCAN v0.9 under the name DroneCAN.
+DroneCAN was created to continue the development of the widely used
+[UAVCAN](https://uavcan.org/) v0.9 protocol. This protocol has proven
+itself as robust and feature rich and has been widely deployed in the
+commercial drone industry and enjoys broad support among industry
+partners. The proposed introduction of the UAVCAN v1 protocol involved
+changes to UAVCAN that increased complexity and did not offer a smooth migration path for existing deployments. After extended discussions within the UAVCAN consortium it was decided that the best solution was to continue development of UAVCAN v0.9 under the name DroneCAN.
 
 ## Key Features
 
