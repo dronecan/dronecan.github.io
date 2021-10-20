@@ -1,4 +1,4 @@
-<img src="image/logo_w_props.png" width="128"></img>
+<img src="image/logo_w_props.png" width="128"/>
 # DroneCAN
 
 DroneCAN is the primary CAN protocol used by the ArduPilot and PX4 projects for communication with CAN peripherals. It is an open protocol with open communication, specification and multiple open implementations.
