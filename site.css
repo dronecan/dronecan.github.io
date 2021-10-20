@@ -239,7 +239,7 @@ strong { font-weight: bold; }
 
 em { font-style: italic; }
 
-table { width: 100%; border: 1px solid #ebebeb; }
+table { width: 100%; border: none; }
 
 th { font-weight: 500; }
 
