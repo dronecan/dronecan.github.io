@@ -27,6 +27,13 @@ Key features planned for DroneCAN in the near future:
  - support for extending messages definitions while retaining compatibility with existing implementations
  - a comprehensive re-work of existing DSDL message structures to improve efficiency and flexibility
 
+## Development
+
+The DroneCAN project has an active development community.
+
+ - discussions on discord at https://dronecan.org/discord
+ - development on github at https://github.com/DroneCAN
+
 ## Supporters
 
 <table style="padding:10px">

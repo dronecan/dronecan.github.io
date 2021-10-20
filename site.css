@@ -219,7 +219,7 @@ footer {
   clear: right;
   padding-left: 10px;
   margin-left: 160px;
-  border-left: 1px solid #aaa;
+  border-left: none;
 }
 
 code, pre { margin-bottom: 30px; font-family: Monaco, "Bitstream Vera Sans Mono", "Lucida Console", Terminal; font-size: 14px; color: #222; }
