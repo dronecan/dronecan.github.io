@@ -40,6 +40,11 @@ The DroneCAN project has an active development community.
  - discussions on discord at [https://dronecan.org/discord](https://dronecan.org/discord)
  - development on github at [https://github.com/DroneCAN](https://github.com/DroneCAN)
 
+## Joining DroneCAN
+
+If you would like to publicly support the DroneCAN project then please
+fill in the [application form](https://dronecan.org/apply)
+
 ## Supporters
 
 <table style="padding:10px">
@@ -68,7 +73,3 @@ The DroneCAN project has an active development community.
    </tr>
 </table>
 
-## Joining DroneCAN
-
-If you would like to publicly support the DroneCAN project then please
-fill in the [application form](https://dronecan.org/apply)
