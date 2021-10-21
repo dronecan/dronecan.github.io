@@ -1,6 +1,7 @@
 theme: jekyll-theme-tactile
 title: DroneCAN
 highlighter: rouge
+description: DroneCAN is the primary CAN protocol used by the ArduPilot and PX4 projects for communication with CAN peripherals. It is an open protocol with open communication, specification and multiple open implementations.
 
 exclude:
   - "specification/"
