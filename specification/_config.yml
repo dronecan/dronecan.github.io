@@ -1,0 +1,25 @@
+# Site settings
+title: UAVCAN
+email: consortium@uavcan.org
+description: Legacy UAVCAN v0 website. Not recommended for new designs.
+baseurl: ""
+url: "https://legacy.uavcan.org"
+github_username: UAVCAN
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+exclude:
+  - "Specification/dsdl/*.md"
+  - "Specification/dsdl/uavcan/*.md"
+
+defaults:
+  -
+    scope:
+      path: ""
+    values:
+      layout: "default"

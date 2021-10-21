@@ -1,0 +1,105 @@
+<!DOCTYPE HTML>
+<html>
+
+    {% include head.html %}
+
+    <body>
+
+        {% include header.html %}
+
+        <section id="main" class="wrapper sidebar right">
+            <div class="inner">
+
+                <!-- BREADCRUMBS -->
+                {% assign breadcrumbs_level = CLEAN_PAGE_URL | split: '/' | size %}
+                {% if breadcrumbs_level > 2 %}
+                <div class="breadcrumbs">
+                {% assign page_url_parts = page.url | split: '/' %}
+                {% assign breadcrumb_url = '' %}
+                {% for x in page_url_parts %}{% if x != '' %}
+                    {% assign tmp1 = breadcrumb_url | append: '/' | append: x %}
+                    {% assign breadcrumb_url = tmp1 %}
+
+                    {% assign tmp2 = breadcrumb_url | remove: '/' %}
+                    {% assign tmp3 = page.url | remove: '/' %}
+                    {% assign tmp4 = breadcrumb_url | append: '/index.html' | remove: '/' %}
+
+                    {% if tmp3 != tmp2 %}
+                        {% if tmp3 != tmp4 %}
+                    <a href="{{breadcrumb_url}}">{{x | replace: '_', ' '}}</a><span>&nbsp;/&nbsp;</span>
+                        {% endif %}
+                    {% else %}
+                    <span>{{PAGE_TITLE}}</span>
+                    {% endif %}
+                {% endif %}{% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- CONTENT -->
+                <div class="content">
+                    {{ content }}
+                </div>
+
+                <!-- SIDEBAR -->
+                {% assign page_url_parts = page.url | remove: 'index.html' | split: '/' %}
+                {% assign level = page_url_parts | size %}
+                {% assign rendered_menu_html = '' %}
+                {% if level > 2 %}
+                    {% capture prefix %}/{{page_url_parts[1]}}/{{page_url_parts[2]}}/{% endcapture %}
+                    {% assign sidebar_node_name = page_url_parts[2] %}
+                    <!-- prefix: {{prefix}} -->
+                    {% capture rendered_menu_html %}{% include menu.html prefix=prefix class="actions" %}{% endcapture %}
+                {% endif %}
+                {% unless rendered_menu_html contains "</li>" %}
+                    {% capture prefix %}/{{page_url_parts[1]}}/{% endcapture %}
+                    {% assign sidebar_node_name = page_url_parts[1] %}
+                    <!-- prefix: {{prefix}} -->
+                    {% capture rendered_menu_html %}{% include menu.html prefix=prefix class="actions" %}{% endcapture %}
+                {% endunless %}
+                {% assign side_menu_exists = false %}
+                {% if rendered_menu_html contains "</li>" %}
+                    {% assign side_menu_exists = true %}
+                {% endif %}
+
+                <div class="sidebar">
+                    <section>
+                        <h3>Obsolete</h3>
+                        This website is dedicated to the experimental version of the protocol known as UAVCAN v0
+                        that is now obsolete.
+                        To learn more about the stable release UAVCAN v1.0, please visit the
+                        <strong><a href="https://uavcan.org/">main website</a></strong>.
+                    </section>
+                    <hr/>
+                    {% if side_menu_exists %}
+                    <section>
+                        {% assign sidebar_node_title = sidebar_node_name | replace: '_',' ' %}
+                        <h3>{{sidebar_node_title}}</h3>
+                        <footer>
+                        {% include render_without_empty_lines.html content=rendered_menu_html %}
+                        </footer>
+                    </section>
+                    {% endif %}
+
+                    <section>
+                        <div id="toc"></div>
+                    </section>
+
+                    <hr/>
+                    <section>
+                        <h3>License</h3>
+                        This work is licensed under a
+                        <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">
+                        Creative Commons Attribution 4.0 International License</a>.
+                    </section>
+                </div>
+            </div>
+        </section>
+
+        {% include footer.html %}
+
+        <script src="/assets/js/toc.js"></script>
+        <script type="text/javascript">
+        $(document).ready(function() { $('#toc').toc({title: '{% if side_menu_exists %}<hr/>{% endif %}<h4>Contents</h4>'}); });
+        </script>
+    </body>
+</html>
