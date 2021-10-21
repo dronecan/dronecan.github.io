@@ -44,7 +44,7 @@ The DroneCAN project has an active development community.
 
 <table style="padding:10px">
   <tr>
-    <td><img src="image/ArduPilot.png" alt="ArduPilot" width="256px"></td>
+    <td><img src="image/ArduPilot2.png" alt="ArduPilot" width="256px"></td>
     <td><img src="image/px4.png" alt="PX4" width="256px"></td>
     <td><img src="image/Currawong.png" alt="Currawong" width="256px"></td>
    </tr>
