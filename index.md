@@ -51,7 +51,7 @@ The DroneCAN project has an active development community.
   <tr>
     <td><img src="image/Cubepilot.jpg" alt="Cubepilot" width="256px"></td>
     <td><img src="image/ARK.png" alt="ARK" width="256px"></td>
-    <td><img src="image/Hitec.jpg" alt="Hitec" width="256px"></td>
+    <td><img src="image/Hitec.png" alt="Hitec" width="256px"></td>
    </tr>
   <tr>
     <td><img src="image/mRo.png" alt="mRo" width="256px"></td>
