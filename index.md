@@ -61,6 +61,7 @@ The DroneCAN project has an active development community.
   <tr>
     <td><img src="image/SpektreWorks.png" alt="SpektreWorks" width="256px"></td>
     <td><img src="image/mateksys.png" alt="Matek" width="256px"></td>
+    <td><img src="image/cuav.png" alt="CUAV" width="256px"></td>
    </tr>
 </table>
 
