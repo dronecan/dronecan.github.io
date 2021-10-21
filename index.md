@@ -58,6 +58,9 @@ The DroneCAN project has an active development community.
     <td><img src="image/kraus.png" alt="Kraus" width="256px"></td>
     <td><img src="image/WurzbachElectronics.jpg" alt="WurzbachElectronics" width="256px"></td>
    </tr>
+  <tr>
+    <td><img src="image/SpektreWorks.png" alt="SpektreWorks" width="256px"></td>
+   </tr>
 </table>
 
 ## Joining DroneCAN
