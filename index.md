@@ -70,6 +70,7 @@ fill in the [application form](https://dronecan.org/apply)
    </tr>
   <tr>
     <td><img src="image/qiotek.png" alt="Qiotek" width="256px"></td>
+    <td><img src="image/Sierra.png" alt="Sierra" width="256px"></td>
    </tr>
 </table>
 
