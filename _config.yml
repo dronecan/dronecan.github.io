@@ -1,6 +1,22 @@
-theme: jekyll-theme-tactile
 title: DroneCAN
+markdown: kramdown
 highlighter: rouge
 
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+defaults:
+  -
+    scope:
+      path: ""
+    values:
+      layout: "default"
+
 exclude:
-  - "specification/"
+  - "specificationxxx/"
+
+exclude:
+  - "specification/Specification/dsdl/*.md"
+  - "specification/Specification/dsdl/uavcan/*.md"
+
