@@ -6,15 +6,15 @@ DroneCAN is the primary CAN protocol used by the ArduPilot and PX4 projects for 
 ## Relationship with UAVCAN
 
 DroneCAN was created to continue the development of the widely used
-[UAVCAN](https://uavcan.org/) v0.9 protocol. This protocol has proven
+[UAVCAN](https://uavcan.org/) v0 protocol. This protocol has proven
 itself as robust and feature rich and has been widely deployed in the
 commercial drone industry and enjoys broad support among industry
 partners. The proposed introduction of the UAVCAN v1 protocol involved
-changes to UAVCAN that increased complexity and did not offer a smooth migration path for existing deployments. After extended discussions within the UAVCAN consortium it was decided that the best solution was to continue development of UAVCAN v0.9 under the name DroneCAN.
+changes to UAVCAN that increased complexity and did not offer a smooth migration path for existing deployments. After extended discussions within the UAVCAN consortium it was decided that the best solution was to continue development of UAVCAN v0 under the name DroneCAN.
 
 ## Key Features
 
-The first version of DroneCAN, known as DroneCAN v1, is identical to the existing UAVCAN v0.9 protocol. This means that the large number of existing UAVCAN v0.9 devices used throughout the drone industry are already DroneCAN v1 compliant. Features inherited from UAVCAN v0.9 include:
+The first version of DroneCAN, known as DroneCAN v1, is identical to the existing UAVCAN v0 protocol. This means that the large number of existing UAVCAN v0 devices used throughout the drone industry are already DroneCAN v1 compliant. Features inherited from UAVCAN v0 include:
  - detailed protocol specification
  - DSDL message description language for message description
  - DNA (dynamic node allocation) for assignment of CAN node IDs
