@@ -1,0 +1,291 @@
+<h1 id="library-build-configuration">Library build configuration</h1>
+
+<p>Library build can be configured via C++ preprocessor definitions.
+All configuration options are listed and documented in the header file
+<a href="https://github.com/UAVCAN/libuavcan/blob/master/libuavcan/include/uavcan/build_config.hpp"><code class="highlighter-rouge">libuavcan/include/uavcan/build_config.hpp</code></a>.</p>
+
+<p>Note that all configuration options have either safe default values or autodetect settings;
+so, in most cases, it’s not necessary to change them.</p>
+
+<p>Applications and the library should use exactly the same build configuration,
+meaning that if the library is built separately from the application, e.g. as a static library,
+the sets of preprocessor symbols used for the library configuration in both builds should match exactly.
+Hence, if the library is built separately from the application,
+it is highly recommended to use the default build configuration
+(the defaults are smart enough to fit virtually any use case).
+For instance, the static library build for Linux uses (and will always use) only the default build configuration.</p>
+
+<h2 id="library-version-number">Library version number</h2>
+
+<p>The following definitions are guaranteed to be present in all future versions of the library:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">UAVCAN_VERSION_MAJOR</code> - major library version number</li>
+  <li><code class="highlighter-rouge">UAVCAN_VERSION_MINOR</code> - minor library version number</li>
+</ul>
+
+<p>These values can be used to work-around the API differences in different versions of the library.</p>
+
+<h2 id="build-configuration-options">Build configuration options</h2>
+
+<p>Note that this chapter doesn’t list some of the advanced options that are unlikely to be needed
+in most use cases.
+If you want to see the full list of configuration options, please refer to the header file <code class="highlighter-rouge">build_config.hpp</code>.</p>
+
+<h3 id="uavcan_cpp_version"><code class="highlighter-rouge">UAVCAN_CPP_VERSION</code></h3>
+
+<p>This macro encodes whether the features that were introduced with newer versions of the C++ standard are supported.
+It expands to the year number after which the standard was named:</p>
+
+<ul>
+  <li>2003 for C++03</li>
+  <li>2011 for C++11</li>
+</ul>
+
+<p>Also, there are helper macros:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">UAVCAN_CPP11</code> - expands to <code class="highlighter-rouge">2011</code></li>
+  <li><code class="highlighter-rouge">UAVCAN_CPP03</code> - expands to <code class="highlighter-rouge">2003</code></li>
+</ul>
+
+<p>This option is automatically set according to the actual C++ standard used by the compiler,
+which is detected via the standard symbol <code class="highlighter-rouge">__cplusplus</code>.
+Sometimes, the user may want to force the library to use C++03 mode,
+in which case this symbol can be overridden manually via compiler flags
+(e.g. for GCC: <code class="highlighter-rouge">-DUAVCAN_CPP_VERSION=UAVCAN_CPP03</code>).</p>
+
+<p>Learn more about the differences between standard versions on the <a href="/Implementations/Libuavcan">libuavcan page</a>.</p>
+
+<h3 id="uavcan_exceptions"><code class="highlighter-rouge">UAVCAN_EXCEPTIONS</code></h3>
+
+<p>This option defines how libuavcan handles fatal errors, e.g. range check error, unexpected null pointer, etc.</p>
+
+<p>If this option is nonzero, libuavcan will throw a standard exception inherited from
+<code class="highlighter-rouge">std::exception</code> every time it encounters a fatal error.
+Possible exception types include <code class="highlighter-rouge">std::runtime_error</code> and <code class="highlighter-rouge">std::out_of_range</code>.
+An exception description string (accessible via the method <code class="highlighter-rouge">what()</code>) indicates where the exception was thrown from.</p>
+
+<p>If this option is zero, then in case of a fatal error libuavcan will perform the following steps in order:</p>
+
+<ol>
+  <li>Execute a zero assertion, so debug builds will abort here.</li>
+  <li>If possible, attempt to work around the error;
+a possible case for such behavior is an out-of-bounds array access wherein the closest valid index is used
+instead of the requested index.</li>
+  <li>If the previous step was not possible, the application will be terminated via <code class="highlighter-rouge">std::abort()</code>.</li>
+</ol>
+
+<p>The default value will be 1 if the values of compiler-specific preprocessor symbols that indicate
+whether exception handling is available are nonzero, e.g. <code class="highlighter-rouge">__EXCEPTIONS</code> or <code class="highlighter-rouge">_HAS_EXCEPTIONS</code>.
+Otherwise, this option  defaults to 0.</p>
+
+<h3 id="uavcan_export"><code class="highlighter-rouge">UAVCAN_EXPORT</code></h3>
+
+<p>This symbol is inserted before every symbol exported by the library. It is empty by default.</p>
+
+<p>Possible use case, e.g. for GCC:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#define UAVCAN_EXPORT    __attribute__((visibility ("default")))
+</span></code></pre>
+</div>
+
+<h3 id="uavcan_tiny"><code class="highlighter-rouge">UAVCAN_TINY</code></h3>
+
+<p>This option is intended for very resource-constrained microcontrollers (&lt;32 KB ROM or &lt;8 KB RAM).
+It removes some auxiliary library features in order to reduce memory footprint.</p>
+
+<p>The default value is always zero (disabled).</p>
+
+<p>Some of the important features affected in tiny mode:</p>
+
+<ul>
+  <li>Transport layer self-diagnostics removed</li>
+  <li>Logging removed</li>
+  <li>The following services are not supported by default:
+    <ul>
+      <li><code class="highlighter-rouge">uavcan.protocol.RestartNode</code></li>
+      <li><code class="highlighter-rouge">uavcan.protocol.GetDataTypeInfo</code></li>
+      <li><code class="highlighter-rouge">uavcan.protocol.GetTransportStats</code></li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="uavcan_tostring"><code class="highlighter-rouge">UAVCAN_TOSTRING</code></h3>
+
+<p>If nonzero, this option adds a convenience string-conversion method, <code class="highlighter-rouge">std::string toString() const</code>,
+to most of the library classes.</p>
+
+<p>The default value is 0, unless any of the preprocessor symbols listed below is nonzero:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">__linux__</code></li>
+  <li><code class="highlighter-rouge">__linux</code></li>
+  <li><code class="highlighter-rouge">__APPLE__</code></li>
+  <li><code class="highlighter-rouge">_WIN64</code></li>
+  <li><code class="highlighter-rouge">_WIN32</code></li>
+  <li>Possibly some else, refer to the implementation for the complete list</li>
+</ul>
+
+<p>Note that this option is guaranteed to be disabled by default on deeply embedded systems.</p>
+
+<h3 id="uavcan_implement_placement_new"><code class="highlighter-rouge">UAVCAN_IMPLEMENT_PLACEMENT_NEW</code></h3>
+
+<p>Set this option to nonzero if your C++ implementation does not implement the placement new operator.</p>
+
+<p>The default value is zero.</p>
+
+<h3 id="uavcan_use_external_snprintf"><code class="highlighter-rouge">UAVCAN_USE_EXTERNAL_SNPRINTF</code></h3>
+
+<p>If this macro is nonzero, libuavcan will not define (but only declare) the function <code class="highlighter-rouge">uavcan::snprintf()</code>.
+In this case the application will need to provide a custom implementation of this function,
+otherwise it will fail to link.</p>
+
+<p>If this macro is zero, <code class="highlighter-rouge">uavcan::snprintf()</code> will simply wrap <code class="highlighter-rouge">vsnprintf()</code> from the standard library.</p>
+
+<p>This feature is useful for memory-constrained embedded systems,
+where the standard <code class="highlighter-rouge">snprintf()</code> implementation is too large to fit in the memory.</p>
+
+<p>The default value is zero.</p>
+
+<h3 id="uavcan_use_external_float16_conversion"><code class="highlighter-rouge">UAVCAN_USE_EXTERNAL_FLOAT16_CONVERSION</code></h3>
+
+<p>If this macro is nonzero, libuavcan will not define the functions that perform conversions between
+the native <code class="highlighter-rouge">float</code> data type and the <code class="highlighter-rouge">float16</code> type used in DSDL,
+allowing the application to link custom conversion routines, possibly taking advantage of
+hardware support for floating point conversions (e.g. instructions <code class="highlighter-rouge">VCVTB</code> and <code class="highlighter-rouge">VCVTT</code> on ARM Cortex).
+For more info refer to the file <code class="highlighter-rouge">libuavcan/src/marshal/uc_float_spec.cpp</code> or grep the sources.</p>
+
+<p>If this macro is zero, the library will use generic conversion routines that are fully portable and hardware-agnostic.</p>
+
+<p>The default value is zero.</p>
+
+<h3 id="uavcan_assertx"><code class="highlighter-rouge">UAVCAN_ASSERT(x)</code></h3>
+
+<p>This function-like preprocessor macro is used to perform run-time checks in debug builds;
+it works in the same way as the standard <code class="highlighter-rouge">assert()</code> macro.
+It is mapped to the standard <code class="highlighter-rouge">assert()</code> macro by default.</p>
+
+<p>If the symbol <code class="highlighter-rouge">UAVCAN_NO_ASSERTIONS</code> is set to a nonzero value,
+this macro expands to an empty statement instead.
+This allows to save sometimes up to 10 KB of ROM on some platforms and reduce CPU usage.</p>
+
+<h3 id="uavcan_mem_pool_block_size"><code class="highlighter-rouge">UAVCAN_MEM_POOL_BLOCK_SIZE</code></h3>
+
+<p>Libuavcan uses a deterministic, fixed-size block allocator to store dynamic data.
+This option allows to override the default block size to use a lower value,
+which sometimes helps to reduce memory usage on platforms with a small pointer size (32 bits or less).</p>
+
+<p>The memory pool block size must be a multiple of the biggest possible alignment on the target platform
+(which is often the size of the largest primitive type, e.g., <code class="highlighter-rouge">long double</code>).</p>
+
+<p>With some compilers (e.g., GCC), the library can adjust this value completely automatically using
+the preprocessor symbol <code class="highlighter-rouge">__BIGGEST_ALIGNMENT__</code> so that the library user doesn’t need to care.
+In case automatic adjustment can’t be performed, it defaults to a safe value, 64 bytes, which fits any platform.</p>
+
+<p>If the block size is set too small for the current platform, the library will intentionally fail to compile.</p>
+
+<h3 id="uavcan_no_global_data_type_registry"><code class="highlighter-rouge">UAVCAN_NO_GLOBAL_DATA_TYPE_REGISTRY</code></h3>
+
+<p>This option will disable the global data type registry maintained by the library.
+<em>Use of this feature is strongly discouraged</em>, unless you have a deep understanding of the library,
+your application is extremely ROM and RAM limited, and you really know what you’re doing.</p>
+
+<p>If this option is enabled, the library will not be able to maintain the set of used DSDL data type
+definitions automatically, so the developer will have to register every used data type manually
+(this procedure is covered in one of the later tutorials).</p>
+
+<p>Pros:</p>
+
+<ul>
+  <li>Slightly lower ROM and RAM footprints of the library.</li>
+  <li>The library will contain no singletons, and no static initialization will take place at start up.</li>
+  <li>Inclusion of the data type definition headers will not affect the ROM footprint.</li>
+</ul>
+
+<p>Cons:</p>
+
+<ul>
+  <li>The developer will be responsible for registration of the DSDL data types needed by the application.</li>
+</ul>
+
+<h2 id="debugging-and-troubleshooting">Debugging and troubleshooting</h2>
+
+<p>The library facilitates debugging and troubleshooting through perfcounters and debug output.</p>
+
+<h3 id="perfcounters">Perfcounters</h3>
+
+<h4 id="getfailurecount"><code class="highlighter-rouge">getFailureCount()</code></h4>
+
+<p>Objects of the following types provide a method that allows the application to query the number of transport
+layer failures detected by the protocol stack for the given service or message.</p>
+
+<ul>
+  <li><code class="highlighter-rouge">uavcan::Subscriber</code></li>
+  <li><code class="highlighter-rouge">uavcan::ServiceServer</code></li>
+  <li><code class="highlighter-rouge">uavcan::ServiceClient</code></li>
+</ul>
+
+<p>The signature of the method is <code class="highlighter-rouge">std::uint32_t getFailureCount() const</code>.</p>
+
+<p>Detectable error types include:</p>
+
+<ul>
+  <li>Transfer CRC failures</li>
+  <li>Data type signature mismatch</li>
+  <li>Data type layout mismatch</li>
+  <li>Framing errors</li>
+</ul>
+
+<h4 id="transferperfcounter"><code class="highlighter-rouge">TransferPerfCounter</code></h4>
+
+<p>Libuavcan maintains a set of performance counters that indicate the number of transfers processed,
+as well as the number of common errors detected in the transport layer.
+The performance counters can be accessed as follows:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TransferPerfCounter</span><span class="o">&amp;</span> <span class="n">perf</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">getDispatcher</span><span class="p">().</span><span class="n">getTransferPerfCounter</span><span class="p">();</span>
+
+<span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">perf</span><span class="p">.</span><span class="n">getErrorCount</span><span class="p">()</span>      <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">perf</span><span class="p">.</span><span class="n">getTxTransferCount</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">perf</span><span class="p">.</span><span class="n">getRxTransferCount</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+</code></pre>
+</div>
+
+<p>The example above assumes that the node object is named <code class="highlighter-rouge">node</code>.</p>
+
+<h4 id="canifaceperfcounters"><code class="highlighter-rouge">CanIfacePerfCounters</code></h4>
+
+<p>Libuavcan maintains the counters of CAN frames exchanged by the CAN controller and the number of
+bus errors detected by the CAN hardware.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOManager</span><span class="o">&amp;</span> <span class="n">canio</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">getDispatcher</span><span class="p">().</span><span class="n">getCanIOManager</span><span class="p">();</span>
+<span class="k">for</span> <span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">canio</span><span class="p">.</span><span class="n">getNumIfaces</span><span class="p">();</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIfacePerfCounters</span> <span class="n">can_perf</span> <span class="o">=</span> <span class="n">canio</span><span class="p">.</span><span class="n">getIfacePerfCounters</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">can_perf</span><span class="p">.</span><span class="n">errors</span>    <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">can_perf</span><span class="p">.</span><span class="n">frames_tx</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">can_perf</span><span class="p">.</span><span class="n">frames_rx</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre>
+</div>
+
+<p>The example above assumes that the node object is named <code class="highlighter-rouge">node</code>.</p>
+
+<h3 id="memory-pool-usage-statistics">Memory pool usage statistics</h3>
+
+<p>Use the following methods to check whether the memory pool is getting exhausted:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">().</span><span class="n">getNumBlocks</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>           <span class="c1">// Capacity
+</span><span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">().</span><span class="n">getNumUsedBlocks</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>       <span class="c1">// Currently used
+</span><span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">().</span><span class="n">getPeakNumUsedBlocks</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>   <span class="c1">// Peak usage
+</span></code></pre>
+</div>
+
+<p>The example above assumes that the node object is named <code class="highlighter-rouge">node</code>.</p>
+
+<h3 id="debug-output">Debug output</h3>
+
+<p>The library will print extensive debug information into stdout via <code class="highlighter-rouge">std::printf()</code>
+if the macro <code class="highlighter-rouge">UAVCAN_DEBUG</code> is assigned a non-zero value.
+Note that this feature requires C++ I/O streams and <code class="highlighter-rouge">UAVCAN_TOSTRING</code>.</p>
+

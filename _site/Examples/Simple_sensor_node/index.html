@@ -1,0 +1,404 @@
+<h1 id="simple-sensor-node">Simple sensor node</h1>
+
+<p>This example is not based on any existing UAVCAN implementation -
+it is completely standalone featuring zero third-party dependencies.</p>
+
+<h2 id="source-code">Source code</h2>
+
+<div class="language-c highlighter-rouge"><pre class="highlight"><code><span class="cm">/*
+ * This program is an example implementation of an extremely lightweight UAVCAN node with zero third-party dependencies.
+ * This example is based on Linux SocketCAN, but can be easily adapted to any other platform.
+ *
+ * GCC invocation command:
+ *     gcc simple_sensor_node.c -lrt -std=gnu99 -o simple_sensor_node
+ * With warnings:
+ *     gcc simple_sensor_node.c -lrt -std=gnu99 -o simple_sensor_node -Wall -Werror -Wextra -pedantic -Wsign-conversion
+ *
+ * Author: Pavel Kirienko &lt;pavel.kirienko@zubax.com&gt;
+ * License: CC0, no copyright reserved
+ * Language: C99
+ */</span>
+
+<span class="cp">#include &lt;stdio.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;math.h&gt;
+</span>
+<span class="cm">/*
+ * This part is specific for Linux. It can be replaced for use on other platforms.
+ * Note that under Linux this source must be linked with librt (for GCC add -lrt)
+ */</span>
+<span class="cp">#include &lt;sys/time.h&gt;
+#include &lt;net/if.h&gt;
+#include &lt;sys/types.h&gt;
+#include &lt;sys/socket.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;linux/can.h&gt;
+#include &lt;linux/can/raw.h&gt;
+#include &lt;time.h&gt;
+</span>
+<span class="k">static</span> <span class="kt">int</span> <span class="n">can_socket</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+
+<span class="kt">int</span> <span class="nf">can_init</span><span class="p">(</span><span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">can_iface_name</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="c1">// Open the SocketCAN socket
+</span>    <span class="k">const</span> <span class="kt">int</span> <span class="n">sock</span> <span class="o">=</span> <span class="n">socket</span><span class="p">(</span><span class="n">PF_CAN</span><span class="p">,</span> <span class="n">SOCK_RAW</span><span class="p">,</span> <span class="n">CAN_RAW</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">sock</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// Resolve the iface index
+</span>    <span class="k">struct</span> <span class="n">ifreq</span> <span class="n">ifr</span><span class="p">;</span>
+    <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">memset</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ifr</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">ifr</span><span class="p">));</span>
+    <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">strncpy</span><span class="p">(</span><span class="n">ifr</span><span class="p">.</span><span class="n">ifr_name</span><span class="p">,</span> <span class="n">can_iface_name</span><span class="p">,</span> <span class="n">IFNAMSIZ</span><span class="p">);</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">ioctl_result</span> <span class="o">=</span> <span class="n">ioctl</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">SIOCGIFINDEX</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ifr</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ioctl_result</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// Assign the iface
+</span>    <span class="k">struct</span> <span class="n">sockaddr_can</span> <span class="n">addr</span><span class="p">;</span>
+    <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">memset</span><span class="p">(</span><span class="o">&amp;</span><span class="n">addr</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">addr</span><span class="p">));</span>
+    <span class="n">addr</span><span class="p">.</span><span class="n">can_family</span>  <span class="o">=</span> <span class="n">AF_CAN</span><span class="p">;</span>
+    <span class="n">addr</span><span class="p">.</span><span class="n">can_ifindex</span> <span class="o">=</span> <span class="n">ifr</span><span class="p">.</span><span class="n">ifr_ifindex</span><span class="p">;</span>
+
+    <span class="c1">// Bind the socket to the iface
+</span>    <span class="k">const</span> <span class="kt">int</span> <span class="n">bind_result</span> <span class="o">=</span> <span class="n">bind</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="p">(</span><span class="k">struct</span> <span class="n">sockaddr</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">addr</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">addr</span><span class="p">));</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">bind_result</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">can_socket</span> <span class="o">=</span> <span class="n">sock</span><span class="p">;</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">can_send</span><span class="p">(</span><span class="kt">uint32_t</span> <span class="n">extended_can_id</span><span class="p">,</span> <span class="k">const</span> <span class="kt">uint8_t</span><span class="o">*</span> <span class="n">frame_data</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="n">frame_data_len</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">frame_data_len</span> <span class="o">&gt;</span> <span class="mi">8</span> <span class="o">||</span> <span class="n">frame_data</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">struct</span> <span class="n">can_frame</span> <span class="n">frame</span><span class="p">;</span>
+    <span class="n">frame</span><span class="p">.</span><span class="n">can_id</span>  <span class="o">=</span> <span class="n">extended_can_id</span> <span class="o">|</span> <span class="n">CAN_EFF_FLAG</span><span class="p">;</span>
+    <span class="n">frame</span><span class="p">.</span><span class="n">can_dlc</span> <span class="o">=</span> <span class="n">frame_data_len</span><span class="p">;</span>
+    <span class="n">memcpy</span><span class="p">(</span><span class="n">frame</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">frame_data</span><span class="p">,</span> <span class="n">frame_data_len</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="n">write</span><span class="p">(</span><span class="n">can_socket</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">frame</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span> <span class="n">can_frame</span><span class="p">));</span>
+<span class="p">}</span>
+
+<span class="kt">uint64_t</span> <span class="nf">get_monotonic_usec</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">struct</span> <span class="n">timespec</span> <span class="n">ts</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">clock_gettime</span><span class="p">(</span><span class="n">CLOCK_MONOTONIC</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ts</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="p">(</span><span class="kt">uint64_t</span><span class="p">)</span><span class="n">ts</span><span class="p">.</span><span class="n">tv_sec</span> <span class="o">*</span> <span class="mi">1000000ULL</span> <span class="o">+</span> <span class="p">(</span><span class="kt">uint64_t</span><span class="p">)</span><span class="n">ts</span><span class="p">.</span><span class="n">tv_nsec</span> <span class="o">/</span> <span class="mi">1000UL</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="cm">/*
+ * End of the platform-specific part
+ */</span>
+
+<span class="cm">/*
+ * UAVCAN transport layer
+ */</span>
+<span class="c1">/// Arbitrary priority values
+</span><span class="k">static</span> <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">PRIORITY_HIGHEST</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">PRIORITY_HIGH</span>    <span class="o">=</span> <span class="mi">8</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">PRIORITY_MEDIUM</span>  <span class="o">=</span> <span class="mi">16</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">PRIORITY_LOW</span>     <span class="o">=</span> <span class="mi">24</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">PRIORITY_LOWEST</span>  <span class="o">=</span> <span class="mi">31</span><span class="p">;</span>
+
+<span class="k">static</span> <span class="kt">uint8_t</span> <span class="n">uavcan_node_id</span><span class="p">;</span>
+
+<span class="kt">int</span> <span class="nf">uavcan_broadcast</span><span class="p">(</span><span class="kt">uint8_t</span> <span class="n">priority</span><span class="p">,</span>
+                     <span class="kt">uint16_t</span> <span class="n">data_type_id</span><span class="p">,</span>
+                     <span class="kt">uint8_t</span> <span class="n">transfer_id</span><span class="p">,</span>
+                     <span class="k">const</span> <span class="kt">uint8_t</span><span class="o">*</span> <span class="n">payload</span><span class="p">,</span>
+                     <span class="kt">uint16_t</span> <span class="n">payload_len</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">payload</span> <span class="o">==</span> <span class="nb">NULL</span> <span class="o">||</span> <span class="n">payload_len</span> <span class="o">&gt;</span> <span class="mi">7</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>  <span class="c1">// In this super-simple implementation we don't support multi-frame transfers.
+</span>    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">priority</span> <span class="o">&gt;</span> <span class="mi">31</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">uint32_t</span> <span class="n">can_id</span> <span class="o">=</span> <span class="p">((</span><span class="kt">uint32_t</span><span class="p">)</span><span class="n">priority</span> <span class="o">&lt;&lt;</span> <span class="mi">24</span><span class="p">)</span> <span class="o">|</span> <span class="p">((</span><span class="kt">uint32_t</span><span class="p">)</span><span class="n">data_type_id</span> <span class="o">&lt;&lt;</span> <span class="mi">8</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="kt">uint32_t</span><span class="p">)</span><span class="n">uavcan_node_id</span><span class="p">;</span>
+
+    <span class="kt">uint8_t</span> <span class="n">payload_with_tail_byte</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span>
+
+    <span class="n">memcpy</span><span class="p">(</span><span class="n">payload_with_tail_byte</span><span class="p">,</span> <span class="n">payload</span><span class="p">,</span> <span class="n">payload_len</span><span class="p">);</span>
+
+    <span class="n">payload_with_tail_byte</span><span class="p">[</span><span class="n">payload_len</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0xC0</span> <span class="o">|</span> <span class="p">(</span><span class="n">transfer_id</span> <span class="o">&amp;</span> <span class="mi">31</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="n">can_send</span><span class="p">(</span><span class="n">can_id</span><span class="p">,</span> <span class="n">payload_with_tail_byte</span><span class="p">,</span> <span class="n">payload_len</span> <span class="o">+</span> <span class="mi">1</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="cm">/*
+ * Float16 support
+ */</span>
+<span class="kt">uint16_t</span> <span class="nf">make_float16</span><span class="p">(</span><span class="kt">float</span> <span class="n">value</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">union</span> <span class="n">fp32</span>
+    <span class="p">{</span>
+        <span class="kt">uint32_t</span> <span class="n">u</span><span class="p">;</span>
+        <span class="kt">float</span> <span class="n">f</span><span class="p">;</span>
+    <span class="p">};</span>
+
+    <span class="k">const</span> <span class="k">union</span> <span class="n">fp32</span> <span class="n">f32infty</span> <span class="o">=</span> <span class="p">{</span> <span class="mi">255U</span> <span class="o">&lt;&lt;</span> <span class="mi">23</span> <span class="p">};</span>
+    <span class="k">const</span> <span class="k">union</span> <span class="n">fp32</span> <span class="n">f16infty</span> <span class="o">=</span> <span class="p">{</span> <span class="mi">31U</span> <span class="o">&lt;&lt;</span> <span class="mi">23</span> <span class="p">};</span>
+    <span class="k">const</span> <span class="k">union</span> <span class="n">fp32</span> <span class="n">magic</span> <span class="o">=</span> <span class="p">{</span> <span class="mi">15U</span> <span class="o">&lt;&lt;</span> <span class="mi">23</span> <span class="p">};</span>
+    <span class="k">const</span> <span class="kt">uint32_t</span> <span class="n">sign_mask</span> <span class="o">=</span> <span class="mh">0x80000000U</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">uint32_t</span> <span class="n">round_mask</span> <span class="o">=</span> <span class="o">~</span><span class="mh">0xFFFU</span><span class="p">;</span>
+
+    <span class="k">union</span> <span class="n">fp32</span> <span class="n">in</span><span class="p">;</span>
+    <span class="kt">uint16_t</span> <span class="n">out</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">in</span><span class="p">.</span><span class="n">f</span> <span class="o">=</span> <span class="n">value</span><span class="p">;</span>
+
+    <span class="kt">uint32_t</span> <span class="n">sign</span> <span class="o">=</span> <span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">&amp;</span> <span class="n">sign_mask</span><span class="p">;</span>
+    <span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">^=</span> <span class="n">sign</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">&gt;=</span> <span class="n">f32infty</span><span class="p">.</span><span class="n">u</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">&gt;</span> <span class="n">f32infty</span><span class="p">.</span><span class="n">u</span><span class="p">)</span> <span class="o">?</span> <span class="mh">0x7FFFU</span> <span class="o">:</span> <span class="mh">0x7C00U</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">&amp;=</span> <span class="n">round_mask</span><span class="p">;</span>
+        <span class="n">in</span><span class="p">.</span><span class="n">f</span> <span class="o">*=</span> <span class="n">magic</span><span class="p">.</span><span class="n">f</span><span class="p">;</span>
+        <span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">-=</span> <span class="n">round_mask</span><span class="p">;</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">&gt;</span> <span class="n">f16infty</span><span class="p">.</span><span class="n">u</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">=</span> <span class="n">f16infty</span><span class="p">.</span><span class="n">u</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint16_t</span><span class="p">)(</span><span class="n">in</span><span class="p">.</span><span class="n">u</span> <span class="o">&gt;&gt;</span> <span class="mi">13</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="n">out</span> <span class="o">|=</span> <span class="p">(</span><span class="kt">uint16_t</span><span class="p">)(</span><span class="n">sign</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="n">out</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/*
+ * Application logic
+ */</span>
+<span class="c1">/// Defined for the standard data type uavcan.protocol.NodeStatus
+</span><span class="k">enum</span> <span class="n">node_health</span>
+<span class="p">{</span>
+    <span class="n">HEALTH_OK</span>       <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">HEALTH_WARNING</span>  <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">HEALTH_ERROR</span>    <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="n">HEALTH_CRITICAL</span> <span class="o">=</span> <span class="mi">3</span>
+<span class="p">};</span>
+
+<span class="c1">/// Defined for the standard data type uavcan.protocol.NodeStatus
+</span><span class="k">enum</span> <span class="n">node_mode</span>
+<span class="p">{</span>
+    <span class="n">MODE_OPERATIONAL</span>     <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">MODE_INITIALIZATION</span>  <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">MODE_MAINTENANCE</span>     <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="n">MODE_SOFTWARE_UPDATE</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="n">MODE_OFFLINE</span>         <span class="o">=</span> <span class="mi">7</span>
+<span class="p">};</span>
+
+<span class="c1">/// Standard data type: uavcan.protocol.NodeStatus
+</span><span class="kt">int</span> <span class="nf">publish_node_status</span><span class="p">(</span><span class="k">enum</span> <span class="n">node_health</span> <span class="n">health</span><span class="p">,</span> <span class="k">enum</span> <span class="n">node_mode</span> <span class="n">mode</span><span class="p">,</span> <span class="kt">uint16_t</span> <span class="n">vendor_specific_status_code</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="kt">uint64_t</span> <span class="n">startup_timestamp_usec</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">startup_timestamp_usec</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">startup_timestamp_usec</span> <span class="o">=</span> <span class="n">get_monotonic_usec</span><span class="p">();</span>
+    <span class="p">}</span>
+
+    <span class="kt">uint8_t</span> <span class="n">payload</span><span class="p">[</span><span class="mi">7</span><span class="p">];</span>
+
+    <span class="c1">// Uptime in seconds
+</span>    <span class="k">const</span> <span class="kt">uint32_t</span> <span class="n">uptime_sec</span> <span class="o">=</span> <span class="p">(</span><span class="n">get_monotonic_usec</span><span class="p">()</span> <span class="o">-</span> <span class="n">startup_timestamp_usec</span><span class="p">)</span> <span class="o">/</span> <span class="mi">1000000ULL</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">uptime_sec</span> <span class="o">&gt;&gt;</span> <span class="mi">0</span><span class="p">)</span>  <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">uptime_sec</span> <span class="o">&gt;&gt;</span> <span class="mi">8</span><span class="p">)</span>  <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">uptime_sec</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">uptime_sec</span> <span class="o">&gt;&gt;</span> <span class="mi">24</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+
+    <span class="c1">// Health and mode
+</span>    <span class="n">payload</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="p">((</span><span class="kt">uint8_t</span><span class="p">)</span><span class="n">health</span> <span class="o">&lt;&lt;</span> <span class="mi">6</span><span class="p">)</span> <span class="o">|</span> <span class="p">((</span><span class="kt">uint8_t</span><span class="p">)</span><span class="n">mode</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">);</span>
+
+    <span class="c1">// Vendor-specific status code
+</span>    <span class="n">payload</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">vendor_specific_status_code</span> <span class="o">&gt;&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">vendor_specific_status_code</span> <span class="o">&gt;&gt;</span> <span class="mi">8</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">uint16_t</span> <span class="n">data_type_id</span> <span class="o">=</span> <span class="mi">341</span><span class="p">;</span>
+    <span class="k">static</span> <span class="kt">uint8_t</span> <span class="n">transfer_id</span><span class="p">;</span>
+
+    <span class="k">return</span> <span class="n">uavcan_broadcast</span><span class="p">(</span><span class="n">PRIORITY_LOW</span><span class="p">,</span> <span class="n">data_type_id</span><span class="p">,</span> <span class="n">transfer_id</span><span class="o">++</span><span class="p">,</span> <span class="n">payload</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">payload</span><span class="p">));</span>
+<span class="p">}</span>
+
+<span class="c1">/// Standard data type: uavcan.equipment.air_data.TrueAirspeed
+</span><span class="kt">int</span> <span class="nf">publish_true_airspeed</span><span class="p">(</span><span class="kt">float</span> <span class="n">mean</span><span class="p">,</span> <span class="kt">float</span> <span class="n">variance</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">const</span> <span class="kt">uint16_t</span> <span class="n">f16_mean</span>     <span class="o">=</span> <span class="n">make_float16</span><span class="p">(</span><span class="n">mean</span><span class="p">);</span>
+    <span class="k">const</span> <span class="kt">uint16_t</span> <span class="n">f16_variance</span> <span class="o">=</span> <span class="n">make_float16</span><span class="p">(</span><span class="n">variance</span><span class="p">);</span>
+
+    <span class="kt">uint8_t</span> <span class="n">payload</span><span class="p">[</span><span class="mi">4</span><span class="p">];</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">f16_mean</span> <span class="o">&gt;&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">f16_mean</span> <span class="o">&gt;&gt;</span> <span class="mi">8</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">f16_variance</span> <span class="o">&gt;&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+    <span class="n">payload</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">f16_variance</span> <span class="o">&gt;&gt;</span> <span class="mi">8</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">;</span>
+
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">uint16_t</span> <span class="n">data_type_id</span> <span class="o">=</span> <span class="mi">1020</span><span class="p">;</span>
+    <span class="k">static</span> <span class="kt">uint8_t</span> <span class="n">transfer_id</span><span class="p">;</span>
+    <span class="n">transfer_id</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="k">return</span> <span class="n">uavcan_broadcast</span><span class="p">(</span><span class="n">PRIORITY_MEDIUM</span><span class="p">,</span> <span class="n">data_type_id</span><span class="p">,</span> <span class="n">transfer_id</span><span class="p">,</span> <span class="n">payload</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">payload</span><span class="p">));</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">compute_true_airspeed</span><span class="p">(</span><span class="kt">float</span><span class="o">*</span> <span class="n">out_airspeed</span><span class="p">,</span> <span class="kt">float</span><span class="o">*</span> <span class="n">out_variance</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="o">*</span><span class="n">out_airspeed</span> <span class="o">=</span> <span class="mi">1</span><span class="p">.</span><span class="mi">2345</span><span class="n">F</span><span class="p">;</span> <span class="c1">// This is a stub.
+</span>    <span class="o">*</span><span class="n">out_variance</span> <span class="o">=</span> <span class="mi">0</span><span class="p">.</span><span class="mi">0</span><span class="n">F</span><span class="p">;</span>    <span class="c1">// By convention, zero represents unknown error variance.
+</span>    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="cm">/*
+     * Node initialization
+     */</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">puts</span><span class="p">(</span><span class="s">"Args: &lt;self-node-id&gt; &lt;can-iface-name&gt;"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">uavcan_node_id</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint8_t</span><span class="p">)</span><span class="n">atoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">uavcan_node_id</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="o">||</span> <span class="n">uavcan_node_id</span> <span class="o">&gt;</span> <span class="mi">127</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"%i is not a valid node ID</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="p">(</span><span class="kt">int</span><span class="p">)</span><span class="n">uavcan_node_id</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">can_init</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Failed to open iface %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">]);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Main loop
+     */</span>
+    <span class="k">enum</span> <span class="n">node_health</span> <span class="n">health</span> <span class="o">=</span> <span class="n">HEALTH_OK</span><span class="p">;</span>
+
+    <span class="k">for</span> <span class="p">(;;)</span>
+    <span class="p">{</span>
+        <span class="kt">float</span> <span class="n">airspeed</span> <span class="o">=</span> <span class="mi">0</span><span class="p">.</span><span class="mi">0</span><span class="n">F</span><span class="p">;</span>
+        <span class="kt">float</span> <span class="n">airspeed_variance</span> <span class="o">=</span> <span class="mi">0</span><span class="p">.</span><span class="mi">0</span><span class="n">F</span><span class="p">;</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">airspeed_computation_result</span> <span class="o">=</span> <span class="n">compute_true_airspeed</span><span class="p">(</span><span class="o">&amp;</span><span class="n">airspeed</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">airspeed_variance</span><span class="p">);</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">airspeed_computation_result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">int</span> <span class="n">publication_result</span> <span class="o">=</span> <span class="n">publish_true_airspeed</span><span class="p">(</span><span class="n">airspeed</span><span class="p">,</span> <span class="n">airspeed_variance</span><span class="p">);</span>
+            <span class="n">health</span> <span class="o">=</span> <span class="p">(</span><span class="n">publication_result</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">?</span> <span class="n">HEALTH_ERROR</span> <span class="o">:</span> <span class="n">HEALTH_OK</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="n">health</span> <span class="o">=</span> <span class="n">HEALTH_ERROR</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="k">const</span> <span class="kt">uint16_t</span> <span class="n">vendor_specific_status_code</span> <span class="o">=</span> <span class="n">rand</span><span class="p">();</span> <span class="c1">// Can be used to report vendor-specific status info
+</span>
+        <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">publish_node_status</span><span class="p">(</span><span class="n">health</span><span class="p">,</span> <span class="n">MODE_OPERATIONAL</span><span class="p">,</span> <span class="n">vendor_specific_status_code</span><span class="p">);</span>
+
+        <span class="n">usleep</span><span class="p">(</span><span class="mi">500000</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="testing-against-libuavcan">Testing against libuavcan</h2>
+
+<p>The following code can be used to test the node against the reference implementation of the UAVCAN stack.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cm">/*
+ * This program subscribes to airspeed messages using libuavcan, and prints them into stdout in YAML format.
+ * It can be used to test alternative implementations of the UAVCAN stack against the reference implementation.
+ *
+ * GCC invocation command:
+ *     g++ libuavcan_airspeed_subscriber.cpp -std=c++11 -lrt -luavcan
+ *
+ * Author: Pavel Kirienko &lt;pavel.kirienko@zubax.com&gt;
+ * License: CC0, no copyright reserved
+ * Language: C++11
+ */</span>
+
+<span class="cp">#include &lt;iostream&gt;
+#include &lt;algorithm&gt;
+#include &lt;uavcan_linux/uavcan_linux.hpp&gt;
+#include &lt;uavcan/equipment/air_data/TrueAirspeed.hpp&gt;
+</span>
+<span class="n">uavcan_linux</span><span class="o">::</span><span class="n">NodePtr</span> <span class="n">initNode</span><span class="p">(</span><span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&gt;&amp;</span> <span class="n">ifaces</span><span class="p">,</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">nid</span><span class="p">,</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span> <span class="n">name</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">auto</span> <span class="n">node</span> <span class="o">=</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">makeNode</span><span class="p">(</span><span class="n">ifaces</span><span class="p">);</span>
+    <span class="n">node</span><span class="o">-&gt;</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">nid</span><span class="p">);</span>
+    <span class="n">node</span><span class="o">-&gt;</span><span class="n">setName</span><span class="p">(</span><span class="n">name</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">start</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start UAVCAN node"</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="n">node</span><span class="o">-&gt;</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">DataType</span><span class="o">&gt;</span>
+<span class="k">static</span> <span class="kt">void</span> <span class="n">printMessage</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">DataType</span><span class="o">&gt;&amp;</span> <span class="n">msg</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"["</span> <span class="o">&lt;&lt;</span> <span class="n">DataType</span><span class="o">::</span><span class="n">getDataTypeFullName</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="s">"]</span><span class="se">\n</span><span class="s">"</span> <span class="o">&lt;&lt;</span> <span class="n">msg</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">---"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">DataType</span><span class="o">&gt;</span>
+<span class="k">static</span> <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">DataType</span><span class="o">&gt;&gt;</span> <span class="n">makePrintingSubscriber</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">NodePtr</span><span class="o">&amp;</span> <span class="n">node</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="n">node</span><span class="o">-&gt;</span><span class="n">makeSubscriber</span><span class="o">&lt;</span><span class="n">DataType</span><span class="o">&gt;</span><span class="p">(</span><span class="o">&amp;</span><span class="n">printMessage</span><span class="o">&lt;</span><span class="n">DataType</span><span class="o">&gt;</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="k">static</span> <span class="kt">void</span> <span class="n">runForever</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">NodePtr</span><span class="o">&amp;</span> <span class="n">node</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">auto</span> <span class="n">sub_true_airspeed</span> <span class="o">=</span> <span class="n">makePrintingSubscriber</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">equipment</span><span class="o">::</span><span class="n">air_data</span><span class="o">::</span><span class="n">TrueAirspeed</span><span class="o">&gt;</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="o">-&gt;</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">getInfinite</span><span class="p">());</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">node</span><span class="o">-&gt;</span><span class="n">logError</span><span class="p">(</span><span class="s">"spin"</span><span class="p">,</span> <span class="s">"Error %*"</span><span class="p">,</span> <span class="n">res</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage:</span><span class="se">\n\t</span><span class="s">"</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt; &lt;can-iface-name-1&gt; [can-iface-name-N...]"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&gt;</span> <span class="n">iface_names</span><span class="p">(</span><span class="n">argv</span> <span class="o">+</span> <span class="mi">2</span><span class="p">,</span> <span class="n">argv</span> <span class="o">+</span> <span class="n">argc</span><span class="p">);</span>
+    <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">NodePtr</span> <span class="n">node</span> <span class="o">=</span> <span class="n">initNode</span><span class="p">(</span><span class="n">iface_names</span><span class="p">,</span> <span class="n">self_node_id</span><span class="p">,</span> <span class="s">"org.uavcan.example.airspeed_subscriber"</span><span class="p">);</span>
+    <span class="n">runForever</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>

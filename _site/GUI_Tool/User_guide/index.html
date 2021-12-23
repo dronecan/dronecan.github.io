@@ -1,0 +1,137 @@
+<h1 id="user-guide">User guide</h1>
+
+<p>This article provides a brief overview of the main capabilities of the UAVCAN GUI Tool.</p>
+
+<h2 id="supported-can-adapters">Supported CAN adapters</h2>
+
+<p>UAVCAN GUI Tool is based on PyUAVCAN, which at the moment supports at least the following hardware backends.</p>
+
+<h3 id="slcan-lawicel-compatible-adapters">SLCAN (LAWICEL) compatible adapters</h3>
+
+<p>This backend is available on all systems.
+All adapters that implement the SLCAN (aka LAWICEL) protocol are supported.
+The following adapters have been tested so far and are guaranteed to work:</p>
+
+<ul>
+  <li><a href="https://zubax.com/products/babel">Zubax Babel</a> (recommended)</li>
+  <li>Thiemar muCAN</li>
+  <li>VSCOM USB-CAN</li>
+</ul>
+
+<p>Any other SLCAN adapter should also work with UAVCAN GUI Tool without issues.</p>
+
+<h3 id="linux-socketcan">Linux SocketCAN</h3>
+
+<p><a href="https://en.wikipedia.org/wiki/SocketCAN">SocketCAN</a> backend is available only on Linux systems.
+It has been tested with the following adapters:</p>
+
+<ul>
+  <li>8devices USB2CAN</li>
+  <li>PEAK System PCAN-USB</li>
+  <li><a href="https://zubax.com/products/babel">Zubax Babel</a> (via SLCAN bridge)</li>
+  <li>Virtual CAN interface</li>
+</ul>
+
+<p>Any other adapter supported by SocketCAN should also work with UAVCAN GUI Tool without issues.</p>
+
+<h2 id="using-vendor-specific-dsdl-definitions">Using Vendor-Specific DSDL Definitions</h2>
+
+<p>The UAVCAN GUI Tool is based on PyUAVCAN,
+which will automatically scan the directory <code class="highlighter-rouge">~/uavcan_vendor_specific_types</code> for vendor-specific data types,
+where <code class="highlighter-rouge">~</code> stands for the home directory of the current user, e.g. <code class="highlighter-rouge">/home/joe</code> or <code class="highlighter-rouge">C:\Users\Joe</code>.
+Consider the following directory layout:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>~
+└── uavcan_vendor_specific_types
+    └── sirius_cybernetics_corporation
+        ├── 100.Foo.uavcan
+        ├── 42.Bar.uavcan
+        └── Baz.uavcan
+</code></pre>
+</div>
+
+<p>The above layout defines the following custom data types:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">sirius_cybernetics_corporation.Foo</code> with the default data type ID 100.</li>
+  <li><code class="highlighter-rouge">sirius_cybernetics_corporation.Bar</code> with the default data type ID 42.</li>
+  <li><code class="highlighter-rouge">sirius_cybernetics_corporation.Baz</code> where the default data type ID is not set.</li>
+</ul>
+
+<h2 id="interactive-console">Interactive Console</h2>
+
+<p>The application embeds an IPython console (running Python 3.4 or newer)
+that provides the user with access to the application’s own UAVCAN node.</p>
+
+<p>As the application is built on <a href="/Implementations/Pyuavcan">PyUAVCAN</a>,
+all features of the library are avaiable to the user via the interactive shell.</p>
+
+<p>The application exposes a few convenience functions and objects, which are listed at the top of the console
+when it is started.
+In order to get more information about any function or object, execute <code class="highlighter-rouge">help(object_name)</code>.
+Autocompletion can be invoked by pressing the <strong>Tab</strong> key.</p>
+
+<h3 id="programming-tips">Programming tips</h3>
+
+<p><strong>Never invoke blocking functions, such as <code class="highlighter-rouge">time.sleep()</code>, from the console.</strong>
+Instead, apply the practices of asynchronous programming;
+the functions <code class="highlighter-rouge">defer()</code>, <code class="highlighter-rouge">periodic()</code>, and <code class="highlighter-rouge">stop()</code> should be of great help here.
+See examples below.</p>
+
+<p>Wrong:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="n">i</span> <span class="o">=</span> <span class="mi">470</span>
+<span class="n">t</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+<span class="k">while</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">20</span><span class="p">:</span>
+    <span class="n">i</span> <span class="o">*=</span> <span class="mf">0.99</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1000</span> <span class="k">if</span> <span class="n">t</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="o">-</span><span class="n">t</span>
+    <span class="k">print</span> <span class="p">(</span><span class="s">'command'</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+    <span class="n">broadcast</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">hardpoint</span><span class="o">.</span><span class="n">Command</span><span class="p">(</span><span class="n">hardpoint_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="n">c</span><span class="p">))</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.3</span><span class="p">)</span>     <span class="c"># THIS IS WRONG</span>
+</code></pre>
+</div>
+
+<p>Same logic as above, implemented correctly:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="n">i</span> <span class="o">=</span> <span class="mi">470</span>
+<span class="n">t</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+<span class="k">def</span> <span class="nf">run_once</span><span class="p">():</span>
+    <span class="k">global</span> <span class="n">i</span><span class="p">,</span> <span class="n">t</span>
+    <span class="n">i</span> <span class="o">*=</span> <span class="mf">0.99</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1000</span> <span class="k">if</span> <span class="n">t</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="o">-</span><span class="n">t</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'command'</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+    <span class="n">broadcast</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">hardpoint</span><span class="o">.</span><span class="n">Command</span><span class="p">(</span><span class="n">hardpoint_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="n">c</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">20</span><span class="p">:</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">defer</span><span class="p">(</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">run_once</span><span class="p">)</span>       <span class="c"># Note: not blocking</span>
+
+<span class="n">node</span><span class="o">.</span><span class="n">defer</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">run_once</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<p>Another example of a periodic process:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">math</span><span class="o">,</span> <span class="nn">time</span>
+
+<span class="k">def</span> <span class="nf">publish_throttle_setpoint</span><span class="p">():</span>
+    <span class="n">sp_sin</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">512</span> <span class="o">*</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span> <span class="o">+</span> <span class="mi">2</span><span class="p">))</span>
+    <span class="n">sp_cos</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">512</span> <span class="o">*</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span> <span class="o">+</span> <span class="mi">2</span><span class="p">))</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">esc</span><span class="o">.</span><span class="n">RawCommand</span><span class="p">(</span><span class="n">cmd</span><span class="o">=</span><span class="p">[</span><span class="n">sp_sin</span><span class="p">,</span> <span class="n">sp_cos</span><span class="p">,</span> <span class="n">sp_sin</span><span class="p">,</span> <span class="n">sp_cos</span><span class="p">])</span>
+    <span class="n">broadcast</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+
+<span class="n">periodic</span><span class="p">(</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">publish_throttle_setpoint</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<p>All periodic processes, along with all subscriptions, can be stopped by executing <code class="highlighter-rouge">stop()</code>.</p>
+
+<h2 id="bus-monitor-plotter-etc">Bus Monitor, Plotter, etc</h2>
+
+<p>UAVCAN GUI Tool provides a bunch of other features,
+which are considered self-documenting and therefore not described here.
+If you find that not true, please <a href="https://github.com/UAVCAN/gui_tool">file a ticket</a>
+or <a href="https://github.com/UAVCAN/uavcan.github.io">contribute to this documentation</a>.</p>
+

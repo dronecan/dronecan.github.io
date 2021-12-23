@@ -1,0 +1,85 @@
+<h1 id="esc-throttle-control">ESC throttle control</h1>
+
+<p>This example script demonstrates how to control ESC throttle setpoint using the Pyuavcan library.
+Before running the script, make sure that no other node on the bus issues contradictory ESC commands concurrently.</p>
+
+<h2 id="writing-the-script">Writing the script</h2>
+
+<p>One code sample is worth 1024 words:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="c">#!/usr/bin/env python3</span>
+
+<span class="kn">import</span> <span class="nn">uavcan</span><span class="o">,</span> <span class="nn">time</span><span class="o">,</span> <span class="nn">math</span>
+
+
+<span class="c"># Publishing setpoint values from this function; it is invoked periodically from the node thread.</span>
+<span class="k">def</span> <span class="nf">publish_throttle_setpoint</span><span class="p">():</span>
+    <span class="c"># Generating a sine wave</span>
+    <span class="n">setpoint</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">512</span> <span class="o">*</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span> <span class="o">+</span> <span class="mi">2</span><span class="p">))</span>
+    <span class="c"># Commanding ESC with indices 0, 1, 2, 3 only</span>
+    <span class="n">commands</span> <span class="o">=</span> <span class="p">[</span><span class="n">setpoint</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">,</span> <span class="n">setpoint</span><span class="p">]</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">esc</span><span class="o">.</span><span class="n">RawCommand</span><span class="p">(</span><span class="n">cmd</span><span class="o">=</span><span class="n">commands</span><span class="p">)</span>
+    <span class="n">node</span><span class="o">.</span><span class="n">broadcast</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">'__main__'</span><span class="p">:</span>
+    <span class="c"># Initializing a UAVCAN node instance.</span>
+    <span class="c"># In this example we're using an SLCAN adapter on the port '/dev/ttyACM0'.</span>
+    <span class="c"># PyUAVCAN also supports other types of adapters, refer to the docs to learn more.</span>
+    <span class="n">node</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">make_node</span><span class="p">(</span><span class="s">'/dev/ttyACM0'</span><span class="p">,</span> <span class="n">node_id</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">bitrate</span><span class="o">=</span><span class="mi">1000000</span><span class="p">)</span>
+
+    <span class="c"># Initializing a dynamic node ID allocator.</span>
+    <span class="c"># This would not be necessary if the nodes were configured to use static node ID.</span>
+    <span class="n">node_monitor</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">node_monitor</span><span class="o">.</span><span class="n">NodeMonitor</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+    <span class="n">dynamic_node_id_allocator</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">dynamic_node_id</span><span class="o">.</span><span class="n">CentralizedServer</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">node_monitor</span><span class="p">)</span>
+
+    <span class="c"># Waiting for at least one other node to appear online (our local node is already online).</span>
+    <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">dynamic_node_id_allocator</span><span class="o">.</span><span class="n">get_allocation_table</span><span class="p">())</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'Waiting for other nodes to become online...'</span><span class="p">)</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">spin</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c"># This is how we invoke the publishing function periodically.</span>
+    <span class="n">node</span><span class="o">.</span><span class="n">periodic</span><span class="p">(</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">publish_throttle_setpoint</span><span class="p">)</span>
+
+    <span class="c"># Printing ESC status message to stdout in human-readable YAML format.</span>
+    <span class="n">node</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">esc</span><span class="o">.</span><span class="n">Status</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">msg</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">(</span><span class="n">msg</span><span class="p">)))</span>
+
+    <span class="c"># Running the node until the application is terminated or until first error.</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">spin</span><span class="p">()</span>
+    <span class="k">except</span> <span class="nb">KeyboardInterrupt</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+</code></pre>
+</div>
+
+<h2 id="running-the-script">Running the script</h2>
+
+<p>Save the above code somewhere and run it.
+The connected ESC will be changing their RPM in a sine pattern, slowly accelerating and decelerating.
+The script will periodically print output similar to this:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>### Message from 124 to All  ts_mono=19376.645693  ts_real=1470440665.872391
+error_count: 0
+voltage: 13.2812
+current: 1.3379
+temperature: 313.15
+rpm: 1514
+power_rating_pct: 13
+esc_index: 3
+</code></pre>
+</div>
+
+<h2 id="using-the-uavcan-gui-tool">Using the UAVCAN GUI Tool</h2>
+
+<p>It is also possible to run the above script (with minor modifications)
+directly from the interactive console of the <a href="/GUI_Tool">UAVCAN GUI Tool</a>,
+because the UAVCAN GUI Tool is built on top of Pyuavcan.
+In that case you won’t need to create a new node yourself in the script - just use the application’s own node,
+it is accessible from the interactive console.
+For details, please read the documentation of the UAVCAN GUI Tool.</p>
+
+<p><a class="imagelink" href="/Implementations/Pyuavcan/Examples/ESC_throttle_control/uavcan_gui_tool.png" data-lightbox="/Implementations/Pyuavcan/Examples/ESC_throttle_control/uavcan_gui_tool.png" data-title="UAVCAN GUI Tool running this example script">
+<img src="/Implementations/Pyuavcan/Examples/ESC_throttle_control/uavcan_gui_tool.png" class="" style="" />
+</a></p>
+

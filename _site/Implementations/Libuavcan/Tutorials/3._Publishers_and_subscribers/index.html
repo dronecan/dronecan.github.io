@@ -1,0 +1,416 @@
+<h1 id="publishers-and-subscribers">Publishers and subscribers</h1>
+
+<p>This tutorial presents two applications:</p>
+
+<ul>
+  <li>Publisher, which broadcasts messages of type <code class="highlighter-rouge">uavcan.protocol.debug.KeyValue</code> once a second with random values.</li>
+  <li>Subscriber, which subscribes to messages of types <code class="highlighter-rouge">uavcan.protocol.debug.KeyValue</code> and
+<code class="highlighter-rouge">uavcan.protocol.debug.LogMessage</code>, and prints them to stdout in the <a href="https://en.wikipedia.org/wiki/YAML">YAML</a> format.</li>
+</ul>
+
+<p>Note that the presented publisher will not publish messages of type <code class="highlighter-rouge">uavcan.protocol.debug.LogMessage</code>.
+The reader is advised to extend it with this functionality on their own.</p>
+
+<h2 id="publisher">Publisher</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+</span>
+<span class="cm">/*
+ * We're going to use messages of type uavcan.protocol.debug.KeyValue, so the appropriate header must be included.
+ * Given a data type named X, the header file name would be:
+ *      X.replace('.', '/') + ".hpp"
+ */</span>
+<span class="cp">#include &lt;uavcan/protocol/debug/KeyValue.hpp&gt; // uavcan.protocol.debug.KeyValue
+</span>
+
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+<span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">Node</span><span class="p">;</span>
+
+
+<span class="k">static</span> <span class="n">Node</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="k">auto</span><span class="o">&amp;</span> <span class="n">node</span> <span class="o">=</span> <span class="n">getNode</span><span class="p">();</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.publisher"</span><span class="p">);</span>
+
+    <span class="cm">/*
+     * Dependent objects (e.g. publishers, subscribers, servers, callers, timers, ...) can be initialized only
+     * if the node is running. Note that all dependent objects always keep a reference to the node object.
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Create the publisher object to broadcast standard key-value messages of type uavcan.protocol.debug.KeyValue.
+     * Keep in mind that most classes defined in the library are not copyable; attempt to copy objects of
+     * such classes will result in compilation failure.
+     * A publishing node won't see its own messages.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Publisher</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="o">&gt;</span> <span class="n">kv_pub</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">kv_pub_init_res</span> <span class="o">=</span> <span class="n">kv_pub</span><span class="p">.</span><span class="n">init</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">kv_pub_init_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the publisher; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">kv_pub_init_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * This would fail because most of the objects - including publishers - are noncopyable.
+     * The error message may look like this:
+     *  "error: ‘uavcan::Noncopyable::Noncopyable(const uavcan::Noncopyable&amp;)’ is private"
+     */</span>
+    <span class="c1">// auto pub_copy = kv_pub;  // Don't try this at home.
+</span>
+    <span class="cm">/*
+     * TX timeout can be overridden if needed.
+     * Default value should be OK for most use cases.
+     */</span>
+    <span class="n">kv_pub</span><span class="p">.</span><span class="n">setTxTimeout</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+
+    <span class="cm">/*
+     * Priority of outgoing tranfers can be changed as follows.
+     * Default priority is 16 (medium).
+     */</span>
+    <span class="n">kv_pub</span><span class="p">.</span><span class="n">setPriority</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">TransferPriority</span><span class="o">::</span><span class="n">MiddleLower</span><span class="p">);</span>
+
+    <span class="cm">/*
+     * Running the node.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * Spinning for 1 second.
+         * The method spin() may return earlier if an error occurs (e.g. driver failure).
+         * All error codes are listed in the header uavcan/error.hpp.
+         */</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">spin_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">spin_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">spin_res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Publishing a random value using the publisher created above.
+         * All message types have zero-initializing default constructors.
+         * Relevant usage info for every data type is provided in its DSDL definition.
+         */</span>
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span> <span class="n">kv_msg</span><span class="p">;</span>  <span class="c1">// Always zero initialized
+</span>        <span class="n">kv_msg</span><span class="p">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">rand</span><span class="p">()</span> <span class="o">/</span> <span class="kt">float</span><span class="p">(</span><span class="n">RAND_MAX</span><span class="p">);</span>
+
+        <span class="cm">/*
+         * Arrays in DSDL types are quite extensive in the sense that they can be static,
+         * or dynamic (no heap needed - all memory is pre-allocated), or they can emulate std::string.
+         * The last one is called string-like arrays.
+         * ASCII strings can be directly assigned or appended to string-like arrays.
+         * For more info, please read the documentation for the class uavcan::Array&lt;&gt;.
+         */</span>
+        <span class="n">kv_msg</span><span class="p">.</span><span class="n">key</span> <span class="o">=</span> <span class="s">"a"</span><span class="p">;</span>   <span class="c1">// "a"
+</span>        <span class="n">kv_msg</span><span class="p">.</span><span class="n">key</span> <span class="o">+=</span> <span class="s">"b"</span><span class="p">;</span>  <span class="c1">// "ab"
+</span>        <span class="n">kv_msg</span><span class="p">.</span><span class="n">key</span> <span class="o">+=</span> <span class="s">"c"</span><span class="p">;</span>  <span class="c1">// "abc"
+</span>
+        <span class="cm">/*
+         * Publishing the message.
+         */</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">pub_res</span> <span class="o">=</span> <span class="n">kv_pub</span><span class="p">.</span><span class="n">broadcast</span><span class="p">(</span><span class="n">kv_msg</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">pub_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"KV publication failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">pub_res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="subscriber">Subscriber</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/debug/KeyValue.hpp&gt;
+#include &lt;uavcan/protocol/debug/LogMessage.hpp&gt;
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+<span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">Node</span><span class="p">;</span>
+
+
+<span class="k">static</span> <span class="n">Node</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="k">auto</span><span class="o">&amp;</span> <span class="n">node</span> <span class="o">=</span> <span class="n">getNode</span><span class="p">();</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.subscriber"</span><span class="p">);</span>
+
+    <span class="cm">/*
+     * Dependent objects (e.g. publishers, subscribers, servers, callers, timers, ...) can be initialized only
+     * if the node is running. Note that all dependent objects always keep a reference to the node object.
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Subscribing to standard log messages of type uavcan.protocol.debug.LogMessage.
+     *
+     * Received messages will be passed to the application via a callback, the type of which can be set via the second
+     * template argument.
+     * In C++11 mode, callback type defaults to std::function&lt;&gt;.
+     * In C++03 mode, callback type defaults to a plain function pointer; use a binder object to call member
+     * functions as callbacks (refer to uavcan::MethodBinder&lt;&gt;).
+     *
+     * N.B.: Some libuavcan users report that C++ lambda functions when used with GCC may actually break the code
+     *       on some embedded targets, particularly ARM Cortex M0. These reports still remain unconfirmed though;
+     *       please refer to the UAVCAN mailing list to learn more.
+     *
+     * The type of the argument of the callback can be either of these two:
+     *  - T&amp;
+     *  - uavcan::ReceivedDataStructure&lt;T&gt;&amp;
+     * For the first option, ReceivedDataStructure&lt;T&gt;&amp; will be cast into a T&amp; implicitly.
+     *
+     * The class uavcan::ReceivedDataStructure extends the received data structure with extra information obtained from
+     * the transport layer, such as Source Node ID, timestamps, Transfer ID, index of the redundant interface this
+     * transfer was picked up from, etc.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogMessage</span><span class="o">&gt;</span> <span class="n">log_sub</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">log_sub_start_res</span> <span class="o">=</span> <span class="n">log_sub</span><span class="p">.</span><span class="n">start</span><span class="p">(</span>
+        <span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogMessage</span><span class="o">&gt;&amp;</span> <span class="n">msg</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="cm">/*
+             * The message will be streamed in YAML format.
+             */</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">msg</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="cm">/*
+             * If the standard iostreams are not available (they rarely available in embedded environments),
+             * use the helper class uavcan::OStream defined in the header file &lt;uavcan/helpers/ostream.hpp&gt;.
+             */</span>
+            <span class="c1">// uavcan::OStream::instance() &lt;&lt; msg &lt;&lt; uavcan::OStream::endl;
+</span>        <span class="p">});</span>
+    <span class="cm">/*
+     * C++03 WARNING
+     * The code above will not compile in C++03, because it uses a lambda function.
+     * In order to compile the code in C++03, move the code from the lambda to a standalone static function.
+     * Use uavcan::MethodBinder&lt;&gt; to invoke member functions.
+     */</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">log_sub_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the log subscriber; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">log_sub_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Subscribing to messages of type uavcan.protocol.debug.KeyValue.
+     * This time we don't want to receive extra information about the received message, so the callback's argument type
+     * would be just T&amp; instead of uavcan::ReceivedDataStructure&lt;T&gt;&amp;.
+     * The callback will print the message in YAML format via std::cout (also refer to uavcan::OStream).
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="o">&gt;</span> <span class="n">kv_sub</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">kv_sub_start_res</span> <span class="o">=</span>
+        <span class="n">kv_sub</span><span class="p">.</span><span class="n">start</span><span class="p">([</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="o">&amp;</span> <span class="n">msg</span><span class="p">)</span> <span class="p">{</span> <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">msg</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span> <span class="p">});</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">kv_sub_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the key/value subscriber; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">kv_sub_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Running the node.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * The method spin() may return earlier if an error occurs (e.g. driver failure).
+         * All error codes are listed in the header uavcan/error.hpp.
+         */</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">getInfinite</span><span class="p">());</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h3 id="compatibility-with-older-c-standards">Compatibility with older C++ standards</h3>
+
+<p>The following code demonstrates how to work-around the lack of important features in older C++ standards (prior C++11).</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/debug/KeyValue.hpp&gt;
+#include &lt;uavcan/protocol/debug/LogMessage.hpp&gt;
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="cm">/**
+ * This class demonstrates how to use uavcan::MethodBinder with subscriber objects in C++03.
+ * In C++11 and newer standards it is recommended to use lambdas and std::function&lt;&gt; instead, as this approach
+ * would be much easier to implement and to understand.
+ */</span>
+<span class="k">class</span> <span class="nc">Node</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">node_</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * Instantiations of uavcan::MethodBinder&lt;&gt;
+     */</span>
+    <span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MethodBinder</span><span class="o">&lt;</span><span class="n">Node</span><span class="o">*</span><span class="p">,</span> <span class="kt">void</span> <span class="p">(</span><span class="n">Node</span><span class="o">::*</span><span class="p">)(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogMessage</span><span class="o">&amp;</span><span class="p">)</span> <span class="k">const</span><span class="o">&gt;</span>
+        <span class="n">LogMessageCallbackBinder</span><span class="p">;</span>
+
+    <span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MethodBinder</span><span class="o">&lt;</span><span class="n">Node</span><span class="o">*</span><span class="p">,</span>
+        <span class="kt">void</span> <span class="p">(</span><span class="n">Node</span><span class="o">::*</span><span class="p">)(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="o">&gt;&amp;</span><span class="p">)</span> <span class="k">const</span><span class="o">&gt;</span>
+            <span class="n">KeyValueCallbackBinder</span><span class="p">;</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogMessage</span><span class="p">,</span> <span class="n">LogMessageCallbackBinder</span><span class="o">&gt;</span> <span class="n">log_sub_</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="p">,</span> <span class="n">KeyValueCallbackBinder</span><span class="o">&gt;</span> <span class="n">kv_sub_</span><span class="p">;</span>
+
+    <span class="kt">void</span> <span class="n">logMessageCallback</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogMessage</span><span class="o">&amp;</span> <span class="n">msg</span><span class="p">)</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Log message:</span><span class="se">\n</span><span class="s">"</span> <span class="o">&lt;&lt;</span> <span class="n">msg</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">keyValueCallback</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="o">&gt;&amp;</span> <span class="n">msg</span><span class="p">)</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"KV message:</span><span class="se">\n</span><span class="s">"</span> <span class="o">&lt;&lt;</span> <span class="n">msg</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="n">Node</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">self_node_id</span><span class="p">,</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span> <span class="n">self_node_name</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">node_</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">()),</span>
+        <span class="n">log_sub_</span><span class="p">(</span><span class="n">node_</span><span class="p">),</span>
+        <span class="n">kv_sub_</span><span class="p">(</span><span class="n">node_</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">self_node_name</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">run</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">start_res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">start_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">log_sub_start_res</span> <span class="o">=</span> <span class="n">log_sub_</span><span class="p">.</span><span class="n">start</span><span class="p">(</span><span class="n">LogMessageCallbackBinder</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">Node</span><span class="o">::</span><span class="n">logMessageCallback</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">log_sub_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the log subscriber; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">log_sub_start_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">kv_sub_start_res</span> <span class="o">=</span> <span class="n">kv_sub_</span><span class="p">.</span><span class="n">start</span><span class="p">(</span><span class="n">KeyValueCallbackBinder</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">Node</span><span class="o">::</span><span class="n">keyValueCallback</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">kv_sub_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the KV subscriber; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">kv_sub_start_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="n">node_</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+
+        <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">getInfinite</span><span class="p">());</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">,</span> <span class="s">"org.uavcan.tutorial.subscriber_cpp03"</span><span class="p">);</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">run</span><span class="p">();</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="running-on-linux">Running on Linux</h2>
+
+<p>Build the applications using the following CMake script:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>publisher publisher.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>publisher <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>subscriber subscriber.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>subscriber <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>subscriber_cpp03 subscriber_cpp03.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>subscriber_cpp03 <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>
+
+<p>This build script assumes that the platform-specific functions are defined in
+<code class="highlighter-rouge">../2._Node_initialization_and_startup/platform_linux.cpp</code>.</p>

@@ -1,0 +1,245 @@
+<h1 id="timers">Timers</h1>
+
+<p>This application demonstrates how to use software timers.</p>
+
+<h2 id="the-code">The code</h2>
+
+<h3 id="c11">C++11</h3>
+
+<p>This is the recommended example.
+It requires C++11 or a newer version of the C++ standard.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+<span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">Node</span><span class="p">;</span>
+
+<span class="k">static</span> <span class="n">Node</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="k">auto</span><span class="o">&amp;</span> <span class="n">node</span> <span class="o">=</span> <span class="n">getNode</span><span class="p">();</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.timers_cpp11"</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Creating timers.
+     * Timers are objects that instruct the libuavcan core to pass control to their callbacks either periodically
+     * at specified interval, or once at some specific time point in the future.
+     * Note that timer objects are noncopyable.
+     *
+     * A timer callback accepts a reference to an object of type uavcan::TimerEvent, which contains two fields:
+     *  - The time when the callback was expected to be invoked.
+     *  - The actual time when the callback was invoked.
+     *
+     * Timers do not require initialization and never fail (because of the very simple logic).
+     *
+     * Note that periodic timers do not accumulate phase error over time.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Timer</span> <span class="n">periodic_timer</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Timer</span> <span class="n">one_shot_timer</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="n">periodic_timer</span><span class="p">.</span><span class="n">setCallback</span><span class="p">([</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">node</span><span class="p">.</span><span class="n">logInfo</span><span class="p">(</span><span class="s">"Periodic Timer"</span><span class="p">,</span> <span class="s">"scheduled_time: %*, real_time: %*"</span><span class="p">,</span>
+                         <span class="n">event</span><span class="p">.</span><span class="n">scheduled_time</span><span class="p">.</span><span class="n">toMSec</span><span class="p">(),</span> <span class="n">event</span><span class="p">.</span><span class="n">real_time</span><span class="p">.</span><span class="n">toMSec</span><span class="p">());</span>
+
+            <span class="c1">// Timers can be checked whether there are pending events
+</span>            <span class="k">if</span> <span class="p">(</span><span class="n">one_shot_timer</span><span class="p">.</span><span class="n">isRunning</span><span class="p">())</span>
+            <span class="p">{</span>
+                <span class="n">node</span><span class="p">.</span><span class="n">logError</span><span class="p">(</span><span class="s">"Periodic Timer"</span><span class="p">,</span> <span class="s">"Someone started the one-shot timer! Period: %*"</span><span class="p">,</span>
+                              <span class="n">one_shot_timer</span><span class="p">.</span><span class="n">getPeriod</span><span class="p">().</span><span class="n">toMSec</span><span class="p">());</span>
+                <span class="n">one_shot_timer</span><span class="p">.</span><span class="n">stop</span><span class="p">();</span> <span class="c1">// And stopped like that
+</span>            <span class="p">}</span>
+
+            <span class="cm">/*
+             * Restart the second timer for one shot. It will be stopped automatically after the first event.
+             * There are two ways to generate a one-shot timer event:
+             *  - at a specified time point (absolute) - use the method startOneShotWithDeadline();
+             *  - after a specified timeout (relative) - use the method startOneShotWithDelay().
+             * Here we restart it in absolute mode.
+             */</span>
+            <span class="k">auto</span> <span class="n">one_shot_deadline</span> <span class="o">=</span> <span class="n">event</span><span class="p">.</span><span class="n">scheduled_time</span> <span class="o">+</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">200</span><span class="p">);</span>
+            <span class="n">one_shot_timer</span><span class="p">.</span><span class="n">startOneShotWithDeadline</span><span class="p">(</span><span class="n">one_shot_deadline</span><span class="p">);</span>
+        <span class="p">});</span>
+
+    <span class="n">one_shot_timer</span><span class="p">.</span><span class="n">setCallback</span><span class="p">([</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">node</span><span class="p">.</span><span class="n">logInfo</span><span class="p">(</span><span class="s">"One-Shot Timer"</span><span class="p">,</span> <span class="s">"scheduled_time: %*, real_time: %*"</span><span class="p">,</span>
+                         <span class="n">event</span><span class="p">.</span><span class="n">scheduled_time</span><span class="p">.</span><span class="n">toMSec</span><span class="p">(),</span> <span class="n">event</span><span class="p">.</span><span class="n">real_time</span><span class="p">.</span><span class="n">toMSec</span><span class="p">());</span>
+        <span class="p">});</span>
+
+    <span class="cm">/*
+     * Starting the timer at 1 Hz.
+     * Start cannot fail.
+     */</span>
+    <span class="n">periodic_timer</span><span class="p">.</span><span class="n">startPeriodic</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+
+    <span class="cm">/*
+     * Node loop.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">getLogger</span><span class="p">().</span><span class="n">setLevel</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogLevel</span><span class="o">::</span><span class="n">DEBUG</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h3 id="c03">C++03</h3>
+
+<p>This example shows how to work-around the lack of lambdas and <code class="highlighter-rouge">std::function&lt;&gt;</code> in C++03.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;sstream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/util/method_binder.hpp&gt;    // Sic!
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="cm">/**
+ * This class demonstrates how to use uavcan::MethodBinder and uavcan::TimerEventForwarder in C++03.
+ * In C++11 and newer standards it is recommended to use lambdas and std::function&lt;&gt; instead, as this approach
+ * would be much easier to implement and to understand.
+ */</span>
+<span class="k">class</span> <span class="nc">NodeWithTimers</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">node_</span><span class="p">;</span>
+
+    <span class="c1">// Instantiation of uavcan::MethodBinder
+</span>    <span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MethodBinder</span><span class="o">&lt;</span><span class="n">NodeWithTimers</span><span class="o">*</span><span class="p">,</span> <span class="kt">void</span> <span class="p">(</span><span class="n">NodeWithTimers</span><span class="o">::*</span><span class="p">)(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEvent</span><span class="o">&amp;</span><span class="p">)</span><span class="o">&gt;</span>
+        <span class="n">TimerCallbackBinder</span><span class="p">;</span>
+
+    <span class="c1">// Now we can use the newly instantiated timer type
+</span>    <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEventForwarder</span><span class="o">&lt;</span><span class="n">TimerCallbackBinder</span><span class="o">&gt;</span> <span class="n">periodic_timer_</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEventForwarder</span><span class="o">&lt;</span><span class="n">TimerCallbackBinder</span><span class="o">&gt;</span> <span class="n">one_shot_timer_</span><span class="p">;</span>
+
+    <span class="kt">void</span> <span class="nf">periodicCallback</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Periodic: scheduled_time: "</span> <span class="o">&lt;&lt;</span> <span class="n">event</span><span class="p">.</span><span class="n">scheduled_time</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">", real_time: "</span> <span class="o">&lt;&lt;</span> <span class="n">event</span><span class="p">.</span><span class="n">real_time</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicTime</span> <span class="n">one_shot_deadline</span> <span class="o">=</span> <span class="n">event</span><span class="p">.</span><span class="n">scheduled_time</span> <span class="o">+</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">200</span><span class="p">);</span>
+        <span class="n">one_shot_timer_</span><span class="p">.</span><span class="n">startOneShotWithDeadline</span><span class="p">(</span><span class="n">one_shot_deadline</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="nf">oneShotCallback</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"One-shot: scheduled_time: "</span> <span class="o">&lt;&lt;</span> <span class="n">event</span><span class="p">.</span><span class="n">scheduled_time</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">", real_time: "</span> <span class="o">&lt;&lt;</span> <span class="n">event</span><span class="p">.</span><span class="n">real_time</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="n">NodeWithTimers</span><span class="p">()</span> <span class="o">:</span>
+        <span class="n">node_</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">()),</span>
+        <span class="n">periodic_timer_</span><span class="p">(</span><span class="n">node_</span><span class="p">,</span> <span class="n">TimerCallbackBinder</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">NodeWithTimers</span><span class="o">::</span><span class="n">periodicCallback</span><span class="p">)),</span>
+        <span class="n">one_shot_timer_</span><span class="p">(</span><span class="n">node_</span><span class="p">,</span> <span class="n">TimerCallbackBinder</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">NodeWithTimers</span><span class="o">::</span><span class="n">oneShotCallback</span><span class="p">))</span>
+    <span class="p">{</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">getLogger</span><span class="p">().</span><span class="n">setLevel</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogLevel</span><span class="o">::</span><span class="n">DEBUG</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="kt">int</span> <span class="n">start</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">self_node_id</span><span class="p">,</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span> <span class="n">node_name</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">node_name</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+        <span class="k">return</span> <span class="n">node_</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">runForever</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="n">periodic_timer_</span><span class="p">.</span><span class="n">startPeriodic</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>   <span class="c1">// Start cannot fail
+</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+
+        <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">getInfinite</span><span class="p">());</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">NodeWithTimers</span> <span class="n">node</span><span class="p">;</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">atoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="s">"org.uavcan.tutorial.timers_cpp03"</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">ostringstream</span> <span class="n">os</span><span class="p">;</span>
+        <span class="n">os</span> <span class="o">&lt;&lt;</span> <span class="s">"Failed to start the node; error: "</span> <span class="o">&lt;&lt;</span> <span class="n">node_start_res</span><span class="p">;</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="n">os</span><span class="p">.</span><span class="n">str</span><span class="p">());</span>
+    <span class="p">}</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">runForever</span><span class="p">();</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="running-on-linux">Running on Linux</h2>
+
+<p>Both versions of the application can be built with the following CMake script:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="c1"># Make sure to provide correct path to 'platform_linux.cpp'! See earlier tutorials for more info.</span>
+<span class="nb">add_executable</span><span class="p">(</span>node_cpp11 node_cpp11.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>node_cpp11 <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>node_cpp03 node_cpp03.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>node_cpp03 <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>

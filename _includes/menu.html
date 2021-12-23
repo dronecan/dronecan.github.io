@@ -1,0 +1,99 @@
+{% comment %}
+This pathetic disaster is nothing else but implementation of a stable sorting algorithm,
+needed to ensure that all menu and sub-menu entries are properly arranged with respect to each other.
+{% endcomment %}
+{% if SORTED_VALID_PAGE_URLS == null %}
+    {% comment %}Initialized with space!{% endcomment %}
+    {% assign urls = ' ' %}
+
+    {% assign sorted_pages = site.pages | sort:"url" %}
+
+    {% for weight in (0..100) %}
+        {% assign matching = sorted_pages | where:"weight",weight %}
+        {% if matching != null %}
+            {% for match in matching %}
+                {% assign tmp2 = match.url | remove: 'index.html' | append: ' ' | remove: '/ ' %}
+                {% assign tmp = urls | append: tmp2 | append: ' ' %}
+                {% assign urls = tmp %}
+            {% endfor %}
+        {% endif %}
+    {% endfor %}
+
+    {% assign matching = sorted_pages | where_exp:"item","item.weight == nil" %}
+    {% for match in matching %}
+        {% unless match.url contains '.xml' or match.url contains '/assets/' %}
+            {% assign tmp2 = match.url | remove: 'index.html' | append: ' ' | remove: '/ ' %}
+            {% assign tmp = urls | append: tmp2 | append: ' ' %}
+            {% assign urls = tmp %}
+        {% endunless %}
+    {% endfor %}
+
+    {% assign SORTED_VALID_PAGE_URLS = urls | split: ' ' %}
+
+    {% comment %}
+    <!-- SORTED_VALID_PAGE_URLS: -->
+    {% for node_url in SORTED_VALID_PAGE_URLS %}
+        <!-- {{node_url}} -->
+    {% endfor %}
+    {% endcomment %}
+{% endif %}
+
+{% capture inner %}
+{% for node_url in SORTED_VALID_PAGE_URLS %}
+    {% if include.prefix == null %} {% assign PREFIX = '' %}
+    {% else %}                      {% assign PREFIX = include.prefix %}
+    {% endif %}
+
+    {% assign node_url_without_prefix = node_url | remove: PREFIX | prepend: '*' | remove: '*/' | remove: '*' %}
+    {% assign node_name = node_url_without_prefix | split: '/' | first %}
+    {% assign node_title = node_name | replace: '_', ' ' %}
+
+    {% assign correct_level = true %}
+    {% if node_url_without_prefix contains '/' %}
+        {% assign correct_level = false %}
+    {% endif %}
+
+    {% if node_url contains PREFIX and correct_level %}
+        {% assign active_item = false %}
+        {% comment %}TODO index page highlighting{% endcomment %}
+        {% assign node_url_noslash = node_url | remove: '/' %}
+        {% assign page_url_noslash = page.url | remove: 'index.html' | remove: '/' %}
+        {% if node_url_noslash == page_url_noslash %}
+            {% assign active_item = true %}
+        {% endif %}
+        {% comment %}
+        Emulating the startswith() behavior here using two temporaries prepended with the same character.
+        For example: Foobarbaz contains bar --> true,
+        however: *Foobarbaz contains *bar --> false,
+        and *barbaz contains *bar --> true.
+        {% endcomment %}
+        {% assign tmp1 = node_url_noslash | prepend: '*' %}
+        {% assign tmp2 = page_url_noslash | prepend: '*' %}
+        {% if PREFIX == '' and tmp2 contains tmp1 %}
+            {% assign active_item = true %}
+        {% endif %}
+
+        <li{% if active_item %} class="current"{% endif %}>
+            {% if include.a_toplevel_opener_class != null and PREFIX == '' %}
+                {% capture a_class %}class="{{ include.a_toplevel_opener_class }}"{% endcapture %}
+            {% else %}
+                {% assign a_class = '' %}
+            {% endif %}
+
+            <a {{a_class}} href="{{node_url}}">{{node_title}}</a>
+
+            {% assign prefix = node_url | append: '/' %}
+            {% include menu.html prefix=prefix class=include.class %}
+        </li>
+    {% endif %}
+{% endfor %}
+{% endcapture %}
+
+{% if inner contains "</li>" %}
+<ul{% if include.class != null %} class="{{include.class}}"{% endif %}>
+{{ inner }}
+    {% if include.prefix == null %}
+    <li><a href="https://dronecan.org/discord" target="_blank" class="{{ include.a_external_link_class }}">Discussions</a></li>
+    {% endif %}
+</ul>
+{% endif %}

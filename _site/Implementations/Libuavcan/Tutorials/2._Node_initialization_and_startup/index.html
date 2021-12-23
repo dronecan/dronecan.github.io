@@ -1,0 +1,573 @@
+<h1 id="node-initialization-and-startup">Node initialization and startup</h1>
+
+<p>In this tutorial we’ll create a simple node that doesn’t do anything useful yet.</p>
+
+<h2 id="abstract">Abstract</h2>
+
+<p>In order to add UAVCAN functionality into an application, we’ll have to create a node object of class <code class="highlighter-rouge">uavcan::Node</code>,
+which is the cornerstone of the library’s API.
+The class requires access to the CAN driver and the system clock, which are platform-specific components,
+therefore they are isolated from the library through the following interfaces:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">uavcan::ICanDriver</code></li>
+  <li><code class="highlighter-rouge">uavcan::ICanIface</code></li>
+  <li><code class="highlighter-rouge">uavcan::ISystemClock</code></li>
+</ul>
+
+<p>Classes that implement above interfaces are provided by libuavcan platform drivers.
+Applications that are using libuavcan can be easily ported between platforms by means of swapping the implementations
+of these interfaces.</p>
+
+<h3 id="memory-management">Memory management</h3>
+
+<p>Libuavcan does not use heap.</p>
+
+<h4 id="dynamic-memory">Dynamic memory</h4>
+
+<p>Dynamic memory allocations are managed by constant-time determenistic fragmentation-free block memory allocator.
+The size of the memory pool that is dedicated to block allocation should be defined compile-time through a template
+argument of the node class <code class="highlighter-rouge">uavcan::Node</code>.
+If the template argument is not provided, the node will expect the application to provide a reference to a custom
+allocator to the constructor (custom allocators are explained below).</p>
+
+<p>The library uses dynamic memory for the following tasks:</p>
+
+<ul>
+  <li>Allocation of temporary buffers for reception of multi-frame transfers;</li>
+  <li>Keeping receiver states (refer to the transport layer specification for more info);</li>
+  <li>Keeping transfer ID map (refer to the transport layer specification for more info);</li>
+  <li>Prioritized TX queue;</li>
+  <li>Some high-level logic.</li>
+</ul>
+
+<p>Typically, the size of the memory pool will be between 4 KB (for a simple node) and 512 KB (for a very complex node).
+The minimum safe size of the memory pool can be evaluated as a double of the sum of the following values:</p>
+
+<ul>
+  <li>For every incoming data type, multiply its maximum serialized length to the number of nodes that may publish it and
+add up the results.</li>
+  <li>Sum the maximum serialized length of all outgoing data types and multiply to the number of CAN interfaces available
+to the node plus one.</li>
+</ul>
+
+<p>It is recommended to round the result up to 64-byte boundary.</p>
+
+<h5 id="memory-pool-sizing-example">Memory pool sizing example</h5>
+
+<p>Consider the following example:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Property</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Number of CAN interfaces</td>
+      <td>2</td>
+    </tr>
+    <tr>
+      <td>Number of publishers of the data type A</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <td>Maximum serialized length of the data type A</td>
+      <td>100 bytes</td>
+    </tr>
+    <tr>
+      <td>Number of publishers of the data type B</td>
+      <td>32</td>
+    </tr>
+    <tr>
+      <td>Maximum serialized length of the data type B</td>
+      <td>24 bytes</td>
+    </tr>
+    <tr>
+      <td>Maximum serialized length of the data type X</td>
+      <td>256 bytes</td>
+    </tr>
+    <tr>
+      <td>Maximum serialized length of the data type Z</td>
+      <td>10 bytes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>A node that is interested in receiving data types A and B, and in publishing data types X and Y,
+will require at least the following amount of memory for the memory pool:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>2 * ((3 * 100 + 32 * 24) + (2 + 1) * (256 + 10)) = 3732 bytes
+Round up to 64: 3776 bytes.
+</code></pre>
+</div>
+
+<h5 id="memory-gauge">Memory gauge</h5>
+
+<p>The library allows to query current memory use as well as peak (worst case) memory use with the following methods of
+the class <code class="highlighter-rouge">PoolAllocator&lt;&gt;</code>:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">uint16_t getNumUsedBlocks() const</code> - returns the number of blocks that are currently in use.</li>
+  <li><code class="highlighter-rouge">uint16_t getNumFreeBlocks() const</code> - returns the number of blocks that are currently free.</li>
+  <li><code class="highlighter-rouge">uint16_t getPeakNumUsedBlocks() const</code> - returns the peak number of blocks allocated, i.e. worst case pool usage.</li>
+</ul>
+
+<p>The methods above can be accessed as follows:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">().</span><span class="n">getNumUsedBlocks</span><span class="p">()</span>     <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">().</span><span class="n">getNumFreeBlocks</span><span class="p">()</span>     <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">().</span><span class="n">getPeakNumUsedBlocks</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+</code></pre>
+</div>
+
+<p>The example above assumes that the node object is named <code class="highlighter-rouge">node</code>.</p>
+
+<h5 id="custom-allocators">Custom allocators</h5>
+
+<p>The node classes can accept a custom allocator provided by the application instead of using a default one.
+In order to use a custom allocator, omit the template argument to the node class, and provide a reference to
+<code class="highlighter-rouge">uavcan::IPoolAllocator</code> to the node class constructor.</p>
+
+<p>The library implements an alternative allocator that uses heap memory instead of a statically allocated pool.
+It can be found under <code class="highlighter-rouge">uavcan/helpers/heap_based_pool_allocator.hpp</code>.
+Please read the class documentation for more info.</p>
+
+<p>The tutorial dedicated to multithreading also covers the topic of custom allocators.</p>
+
+<h4 id="stack-allocation">Stack allocation</h4>
+
+<p>Deserialized message and service objects are allocated on the stack.
+Therefore, the size of the stack available to the thread must account for the largest used message or service object.
+This also implies that any reference to a message or service object passed to the application via a callback will be
+invalidated once the callback returns control back to the library.</p>
+
+<p>Typically, minimum safe size of the stack would be about 1.5 KB.</p>
+
+<h3 id="threading">Threading</h3>
+
+<p>From the standpoint of threading, the following configurations are available:</p>
+
+<ul>
+  <li>Single-threaded - the library runs entirely in a single thread.</li>
+  <li>Multi-threaded - the library runs in two threads:
+    <ul>
+      <li>Primary thread, which is suitable for hard real time, low-latency communications;</li>
+      <li>Secondary threads, which are suitable for blocking, I/O-intensive, or CPU-intensive tasks, but not for
+real-time tasks.</li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="single-threaded-configuration">Single-threaded configuration</h4>
+
+<p>In a single-threaded configuration, the library’s thread should either always block inside <code class="highlighter-rouge">Node&lt;&gt;::spin()</code>, or
+invoke <code class="highlighter-rouge">Node&lt;&gt;::spin()</code> or <code class="highlighter-rouge">Node&lt;&gt;::spinOnce()</code> periodically.</p>
+
+<h5 id="blocking-inside-spin">Blocking inside <code class="highlighter-rouge">spin()</code></h5>
+
+<p>This is the most typical use-case:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="k">for</span> <span class="p">(;;)</span>
+<span class="p">{</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">error</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">100</span><span class="p">));</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">error</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient error: "</span> <span class="o">&lt;&lt;</span> <span class="n">error</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span> <span class="c1">// Handle the transient error...
+</span>    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre>
+</div>
+
+<p>Some background processing can be performed between the calls to <code class="highlighter-rouge">spin()</code>:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="k">for</span> <span class="p">(;;)</span>
+<span class="p">{</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">error</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">100</span><span class="p">));</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">error</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient error: "</span> <span class="o">&lt;&lt;</span> <span class="n">error</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span> <span class="c1">// Handle the transient error...
+</span>    <span class="p">}</span>
+
+    <span class="n">performBackgroundProcessing</span><span class="p">();</span>  <span class="c1">// Will be invoked between spin() calls, at 10 Hz in this example
+</span><span class="p">}</span>
+</code></pre>
+</div>
+
+<p>In the latter example, the function <code class="highlighter-rouge">performBackgroundProcessing()</code> will be invoked at 10 Hz between calls to
+<code class="highlighter-rouge">Node&lt;&gt;::spin()</code>.
+The same effect can be achieved with libuavcan’s timer objects, which will be covered in the following tutorials.</p>
+
+<h5 id="blocking-outside-of-spin">Blocking outside of <code class="highlighter-rouge">spin()</code></h5>
+
+<p>This is a more involved use case.
+This approach can be useful if the application needs to poll various I/O operations in the same thread
+with libuavcan.</p>
+
+<p>In this case, the application will have to obtain the <em>file descriptor</em> from the UAVCAN’s CAN driver object,
+and add it to the set of file descriptors it is polling on.
+Whenever the CAN driver’s file descriptor reports an event, the application will call either
+<code class="highlighter-rouge">Node&lt;&gt;::spin()</code> or <code class="highlighter-rouge">Node&lt;&gt;::spinOnce()</code>.
+Also, the spin method must be invoked periodically; the recommended maximum period is 10 milliseconds.</p>
+
+<p>The difference between <code class="highlighter-rouge">Node&lt;&gt;::spin()</code> and <code class="highlighter-rouge">Node&lt;&gt;::spinOnce()</code> is as follows:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">spin()</code> - blocks until the timeout has expired, then returns, even if some of the CAN frames or timer events
+are still pending processing.</li>
+  <li><code class="highlighter-rouge">spinOnce()</code> - instead of blocking,
+it returns immediately once all available CAN frames and timer events are processed.</li>
+</ul>
+
+<h4 id="multi-threaded-configuration">Multi-threaded configuration</h4>
+
+<p>This configuration is covered later in a dedicated tutorial.
+In short, it splits the node into multiple node objects,
+where each node object is being maintained in a separate thread.
+The same concepts concerning the spin methods apply as for the single-threaded configuration (see above).</p>
+
+<p>Typically, the separated node objects communicate with each other by means of a <em>virtual CAN driver interface</em>.</p>
+
+<h2 id="the-code">The code</h2>
+
+<p>Put the following code into <code class="highlighter-rouge">node.cpp</code>:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+</span>
+<span class="cm">/**
+ * These functions are platform dependent, so they are not included in this example.
+ * Refer to the relevant platform documentation to learn how to implement them.
+ */</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="cm">/**
+ * Memory pool size largely depends on the number of CAN ifaces and on application's logic.
+ * Please read the documentation for the class uavcan::Node to learn more.
+ */</span>
+<span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+
+<span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">Node</span><span class="p">;</span>
+
+<span class="cm">/**
+ * Node object will be constructed at the time of the first access.
+ * Note that most library objects are noncopyable (e.g. publishers, subscribers, servers, callers, timers, ...).
+ * Attempt to copy a noncopyable object causes compilation failure.
+ */</span>
+<span class="k">static</span> <span class="n">Node</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="cm">/*
+     * Node initialization.
+     * Node ID and name are required; otherwise, the node will refuse to start.
+     * Version info is optional.
+     */</span>
+    <span class="k">auto</span><span class="o">&amp;</span> <span class="n">node</span> <span class="o">=</span> <span class="n">getNode</span><span class="p">();</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.init"</span><span class="p">);</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">SoftwareVersion</span> <span class="n">sw_version</span><span class="p">;</span>  <span class="c1">// Standard type uavcan.protocol.SoftwareVersion
+</span>    <span class="n">sw_version</span><span class="p">.</span><span class="n">major</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setSoftwareVersion</span><span class="p">(</span><span class="n">sw_version</span><span class="p">);</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">HardwareVersion</span> <span class="n">hw_version</span><span class="p">;</span>  <span class="c1">// Standard type uavcan.protocol.HardwareVersion
+</span>    <span class="n">hw_version</span><span class="p">.</span><span class="n">major</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setHardwareVersion</span><span class="p">(</span><span class="n">hw_version</span><span class="p">);</span>
+
+    <span class="cm">/*
+     * Start the node.
+     * All returnable error codes are listed in the header file uavcan/error.hpp.
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Informing other nodes that we're ready to work.
+     * Default mode is INITIALIZING.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+
+    <span class="cm">/*
+     * Some logging.
+     * Log formatting is not available in C++03 mode.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">getLogger</span><span class="p">().</span><span class="n">setLevel</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">LogLevel</span><span class="o">::</span><span class="n">DEBUG</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">logInfo</span><span class="p">(</span><span class="s">"main"</span><span class="p">,</span> <span class="s">"Hello world! My Node ID: %*"</span><span class="p">,</span>
+                 <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">getNodeID</span><span class="p">().</span><span class="n">get</span><span class="p">()));</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Hello world!"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * Node loop.
+     * The thread should not block outside Node::spin().
+     */</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * If there's nothing to do, the thread blocks inside the driver's
+         * method select() until the timeout expires or an error occurs (e.g. driver failure).
+         * All error codes are listed in the header uavcan/error.hpp.
+         */</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Random status transitions.
+         * In real applications, the status code shall reflect node's health.
+         */</span>
+        <span class="k">const</span> <span class="kt">float</span> <span class="n">random</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">rand</span><span class="p">()</span> <span class="o">/</span> <span class="kt">float</span><span class="p">(</span><span class="n">RAND_MAX</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">random</span> <span class="o">&lt;</span> <span class="mf">0.7</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">node</span><span class="p">.</span><span class="n">setHealthOk</span><span class="p">();</span>
+        <span class="p">}</span>
+        <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">random</span> <span class="o">&lt;</span> <span class="mf">0.9</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">node</span><span class="p">.</span><span class="n">setHealthWarning</span><span class="p">();</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="n">node</span><span class="p">.</span><span class="n">setHealthError</span><span class="p">();</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="running-on-linux">Running on Linux</h2>
+
+<p>We need to implement the platform-specific functions declared in the beginning of the example code above,
+write a build script, and then build the application.
+For the sake of simplicity, it is assumed that there’s a single CAN interface named <code class="highlighter-rouge">vcan0</code>.</p>
+
+<p>Libuavcan must be installed on the system in order for the build to succeed.
+Also take a look at the CLI tools that come with the libuavcan Linux platform driver -
+they will be helpful when learning from the tutorials.</p>
+
+<h3 id="implementing-the-platform-specific-functions">Implementing the platform-specific functions</h3>
+
+<p>Put the following code into <code class="highlighter-rouge">platform_linux.cpp</code>:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;uavcan_linux/uavcan_linux.hpp&gt;
+</span>
+<span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">SystemClock</span> <span class="n">clock</span><span class="p">;</span>
+    <span class="k">return</span> <span class="n">clock</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">SocketCanDriver</span> <span class="n">driver</span><span class="p">(</span><span class="k">dynamic_cast</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">SystemClock</span><span class="o">&amp;&gt;</span><span class="p">(</span><span class="n">getSystemClock</span><span class="p">()));</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">driver</span><span class="p">.</span><span class="n">getNumIfaces</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>     <span class="c1">// Will be executed once
+</span>    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">driver</span><span class="p">.</span><span class="n">addIface</span><span class="p">(</span><span class="s">"vcan0"</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to add iface"</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">driver</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h3 id="writing-the-build-script">Writing the build script</h3>
+
+<p>We’re going to use <a href="http://cmake.org/">CMake</a>, but other build systems will work just as well.
+Put the following code into <code class="highlighter-rouge">CMakeLists.txt</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>node node.cpp platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>node <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>
+
+<h4 id="building">Building</h4>
+
+<p>The building is quite standard for CMake:</p>
+
+<div class="language-sh highlighter-rouge"><pre class="highlight"><code>mkdir build
+<span class="nb">cd </span>build
+cmake ..
+make -j4
+</code></pre>
+</div>
+
+<p>When these steps are executed, the application can be launched.</p>
+
+<h3 id="using-virtual-can-interface">Using virtual CAN interface</h3>
+
+<p>It is convenient to test CAN applications against virtual CAN interfaces.
+In order to add a virtual CAN interface, execute the following:</p>
+
+<div class="language-sh highlighter-rouge"><pre class="highlight"><code><span class="nv">IFACE</span><span class="o">=</span><span class="s2">"vcan0"</span>
+
+modprobe can
+modprobe can_raw
+modprobe can_bcm
+modprobe vcan
+
+ip link add dev <span class="nv">$IFACE</span> <span class="nb">type </span>vcan
+ip link <span class="nb">set </span>up <span class="nv">$IFACE</span>
+
+ifconfig <span class="nv">$IFACE</span> up
+</code></pre>
+</div>
+
+<p>Libuavcan also includes utility <code class="highlighter-rouge">uavcan_add_vcan</code> that automates the procedure.
+For example:</p>
+
+<div class="language-bash highlighter-rouge"><pre class="highlight"><code>uavcan_add_vcan vcan0
+</code></pre>
+</div>
+
+<p>Execute <code class="highlighter-rouge">uavcan_add_vcan --help</code> to get usage info.</p>
+
+<h3 id="using-slcan-tunneling-can-over-serial-port">Using SLCAN (tunneling CAN over serial port)</h3>
+
+<p>Libuavcan includes an utility named <code class="highlighter-rouge">uavcan_add_slcan</code> that allows to easily configure an SLCAN interface.
+For example:</p>
+
+<div class="language-bash highlighter-rouge"><pre class="highlight"><code>uavcan_add_slcan /dev/ttyACM0
+</code></pre>
+</div>
+
+<p>Execute <code class="highlighter-rouge">uavcan_add_slcan --help</code> to get full usage info.</p>
+
+<p>Note that SLCAN support requires that the package <code class="highlighter-rouge">can-utils</code> is installed on the system.
+On a Debian/Ubuntu-based system the package can be installed from APT: <code class="highlighter-rouge">apt-get install can-utils</code>.
+If this package is not available for your Linux distribution, you can
+<a href="http://elinux.org/Can-utils">build it from sources</a>.</p>
+
+<p>In certain cases SLCAN adapters may be losing TX frames due to insufficient capacity of the interface’s TX queue.
+This can be easily solved by means of providing larger TX queue for the interface:</p>
+
+<div class="language-sh highlighter-rouge"><pre class="highlight"><code>ifconfig slcan0 txqueuelen 100     <span class="c"># Where 'slcan0' is the interface and '100' is queue depth</span>
+</code></pre>
+</div>
+
+<h3 id="using-candump">Using <code class="highlighter-rouge">candump</code></h3>
+
+<p><code class="highlighter-rouge">candump</code> is a tool from the package <code class="highlighter-rouge">can-utils</code> that can be used to monitor CAN bus traffic.</p>
+
+<div class="language-sh highlighter-rouge"><pre class="highlight"><code>candump -caeta vcan0
+</code></pre>
+</div>
+
+<p>You can always combine it with <code class="highlighter-rouge">grep</code> and other standard tools for advanced data processing, for example:</p>
+
+<div class="language-sh highlighter-rouge"><pre class="highlight"><code><span class="c"># Ignore status messages of node 121:</span>
+candump -caetz slcan0 | grep -v <span class="s1">'\S\S015579'</span>
+<span class="c"># Print only messages from node 10 except its status messages:</span>
+candump -caetz slcan0 | grep <span class="s1">'\S\S\S\S\S\S0A'</span> | grep -v <span class="s1">'\S\S01550A'</span>
+<span class="c"># Dump exchange to a file for later analysis:</span>
+candump -caetz slcan0 &gt; can_<span class="sb">`</span>date -Iseconds<span class="sb">`</span>.dump
+</code></pre>
+</div>
+
+<p>Learn how to grep from the
+<a href="https://www.gnu.org/software/findutils/manual/html_node/find_html/grep-regular-expression-syntax.html">grep manual</a>.</p>
+
+<h2 id="running-on-stm32">Running on STM32</h2>
+
+<p>The platform-specific functions can be implemented as follows:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;uavcan_stm32/uavcan_stm32.hpp&gt;
+</span>
+<span class="k">static</span> <span class="k">constexpr</span> <span class="kt">int</span> <span class="n">RxQueueSize</span> <span class="o">=</span> <span class="mi">64</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">constexpr</span> <span class="n">std</span><span class="o">::</span><span class="kt">uint32_t</span> <span class="n">BitRate</span> <span class="o">=</span> <span class="mi">1000000</span><span class="p">;</span>
+
+<span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="n">uavcan_stm32</span><span class="o">::</span><span class="n">SystemClock</span><span class="o">::</span><span class="n">instance</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">uavcan_stm32</span><span class="o">::</span><span class="n">CanInitHelper</span><span class="o">&lt;</span><span class="n">RxQueueSize</span><span class="o">&gt;</span> <span class="n">can</span><span class="p">;</span>
+    <span class="k">static</span> <span class="kt">bool</span> <span class="n">initialized</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">initialized</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">initialized</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
+        <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">can</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="n">BitRate</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="c1">// Handle the error
+</span>        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">can</span><span class="p">.</span><span class="n">driver</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<p>For the rest, please refer to the STM32 test application provided in the repository.</p>
+
+<h2 id="running-on-lpc11c24">Running on LPC11C24</h2>
+
+<p>The platform-specific functions can be implemented as follows:</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;uavcan_lpc11c24/uavcan_lpc11c24.hpp&gt;
+</span>
+<span class="k">static</span> <span class="k">constexpr</span> <span class="n">std</span><span class="o">::</span><span class="kt">uint32_t</span> <span class="n">BitRate</span> <span class="o">=</span> <span class="mi">1000000</span><span class="p">;</span>
+
+<span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="n">uavcan_lpc11c24</span><span class="o">::</span><span class="n">SystemClock</span><span class="o">::</span><span class="n">instance</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="kt">bool</span> <span class="n">initialized</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">initialized</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">initialized</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
+        <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">uavcan_lpc11c24</span><span class="o">::</span><span class="n">CanDriver</span><span class="o">::</span><span class="n">instance</span><span class="p">().</span><span class="n">init</span><span class="p">(</span><span class="n">BitRate</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="c1">// Handle the error
+</span>        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">uavcan_lpc11c24</span><span class="o">::</span><span class="n">CanDriver</span><span class="o">::</span><span class="n">instance</span><span class="p">();</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<p>For the rest, please refer to the LPC11C24 test application provided in the repository.</p>
+

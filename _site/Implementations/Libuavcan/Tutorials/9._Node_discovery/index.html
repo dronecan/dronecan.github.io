@@ -1,0 +1,420 @@
+<h1 id="node-discovery">Node discovery</h1>
+
+<p>This tutorial demonstrates how to discover other nodes in the network and retrieve information about each node.
+Two applications are implemented in this tutorial:</p>
+
+<ul>
+  <li>Passive network monitor - a small application that simply listens to messages of type <code class="highlighter-rouge">uavcan.protocol.NodeStatus</code>,
+which allows it to obtain the following minimal information about each node:
+    <ul>
+      <li>Node ID</li>
+      <li>Operating mode (Initialization, Operational, Maintenance, etc.)</li>
+      <li>Health code (OK, Warning, Error, Critical)</li>
+      <li>Uptime</li>
+    </ul>
+  </li>
+  <li>Active network monitor - an application that extends the passive monitor so that it actively requests
+<code class="highlighter-rouge">uavcan.protocol.GetNodeInfo</code> whenever a node appears in the network or restarts.
+This allows the monitor to obtain the following information about each node:
+    <ul>
+      <li>All information from the passive monitor (see above)</li>
+      <li>Node name</li>
+      <li>Software version information</li>
+      <li>Hardware version information, including the globally unique ID and the certificate of authenticity</li>
+    </ul>
+  </li>
+</ul>
+
+<p>Refer to the applications provided with the Linux platform drivers to see some
+real-world examples of network monitoring.</p>
+
+<h2 id="passive-monitor">Passive monitor</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/node_status_monitor.hpp&gt;      // For uavcan::NodeStatusMonitor
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="cm">/**
+ * This class implements a passive node monitor.
+ * There's a basic node monitor implementation in the library: uavcan::NodeStatusMonitor
+ * Extension through inheritance allows to add more complex logic to it.
+ */</span>
+<span class="k">class</span> <span class="nc">NodeMonitor</span> <span class="o">:</span> <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeStatusMonitor</span>
+<span class="p">{</span>
+    <span class="cm">/**
+     * This method is not required to implement.
+     * It is called when a remote node becomes online, changes status, or goes offline.
+     */</span>
+    <span class="kt">void</span> <span class="n">handleNodeStatusChange</span><span class="p">(</span><span class="k">const</span> <span class="n">NodeStatusChangeEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">was_known</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">" has changed status from "</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">modeToString</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">old_status</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"/"</span> <span class="o">&lt;&lt;</span> <span class="n">healthToString</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">old_status</span><span class="p">)</span>
+                      <span class="o">&lt;&lt;</span> <span class="s">" to "</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">modeToString</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">status</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"/"</span> <span class="o">&lt;&lt;</span> <span class="n">healthToString</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">status</span><span class="p">)</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">" has just appeared with status "</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">modeToString</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">status</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"/"</span> <span class="o">&lt;&lt;</span> <span class="n">healthToString</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">status</span><span class="p">)</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * This method is not required to implement.
+     * It is called for every received message uavcan.protocol.NodeStatus after handleNodeStatusChange(), even
+     * if the status code has not changed.
+     */</span>
+    <span class="kt">void</span> <span class="n">handleNodeStatusMessage</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">&gt;&amp;</span> <span class="n">msg</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">msg</span><span class="p">;</span>
+        <span class="c1">//std::cout &lt;&lt; "Remote node status message\n" &lt;&lt; msg &lt;&lt; std::endl &lt;&lt; std::endl;
+</span>    <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="n">NodeMonitor</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">INode</span><span class="o">&amp;</span> <span class="n">node</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeStatusMonitor</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+    <span class="p">{</span> <span class="p">}</span>
+
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">modeToString</span><span class="p">(</span><span class="k">const</span> <span class="n">NodeStatus</span> <span class="n">status</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">switch</span> <span class="p">(</span><span class="n">status</span><span class="p">.</span><span class="n">mode</span><span class="p">)</span>
+        <span class="p">{</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_OPERATIONAL</span><span class="o">:</span>     <span class="k">return</span> <span class="s">"OPERATIONAL"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_INITIALIZATION</span><span class="o">:</span>  <span class="k">return</span> <span class="s">"INITIALIZATION"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_MAINTENANCE</span><span class="o">:</span>     <span class="k">return</span> <span class="s">"MAINTENANCE"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_SOFTWARE_UPDATE</span><span class="o">:</span> <span class="k">return</span> <span class="s">"SOFTWARE_UPDATE"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_OFFLINE</span><span class="o">:</span>         <span class="k">return</span> <span class="s">"OFFLINE"</span><span class="p">;</span>
+        <span class="k">default</span><span class="o">:</span> <span class="k">return</span> <span class="s">"???"</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">healthToString</span><span class="p">(</span><span class="k">const</span> <span class="n">NodeStatus</span> <span class="n">status</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">switch</span> <span class="p">(</span><span class="n">status</span><span class="p">.</span><span class="n">health</span><span class="p">)</span>
+        <span class="p">{</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">HEALTH_OK</span><span class="o">:</span>       <span class="k">return</span> <span class="s">"OK"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">HEALTH_WARNING</span><span class="o">:</span>  <span class="k">return</span> <span class="s">"WARNING"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">HEALTH_ERROR</span><span class="o">:</span>    <span class="k">return</span> <span class="s">"ERROR"</span><span class="p">;</span>
+        <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">HEALTH_CRITICAL</span><span class="o">:</span> <span class="k">return</span> <span class="s">"CRITICAL"</span><span class="p">;</span>
+        <span class="k">default</span><span class="o">:</span> <span class="k">return</span> <span class="s">"???"</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="mi">16384</span><span class="o">&gt;</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+
+    <span class="cm">/*
+     * In this example the node is configured in passive mode, i.e. without node ID.
+     * This means that the node will not be able to emit transfers, which is not needed anyway.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.passive_monitor"</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Instantiating the monitor.
+     * The object is noncopyable.
+     */</span>
+    <span class="n">NodeMonitor</span> <span class="n">monitor</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="cm">/*
+     * Starting the monitor.
+     * Once started, it runs in the background and does not require any attention.
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">monitor_start_res</span> <span class="o">=</span> <span class="n">monitor</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">monitor_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the monitor; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">monitor_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Spinning the node for 2 seconds and then printing the list of nodes in the network.
+     */</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">2000</span><span class="p">))</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Spin failed"</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Known nodes:"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;=</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span><span class="o">::</span><span class="n">Max</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">monitor</span><span class="p">.</span><span class="n">isNodeKnown</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+        <span class="p">{</span>
+            <span class="k">auto</span> <span class="n">status</span> <span class="o">=</span> <span class="n">monitor</span><span class="p">.</span><span class="n">getNodeStatus</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node "</span> <span class="o">&lt;&lt;</span> <span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="s">": "</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">NodeMonitor</span><span class="o">::</span><span class="n">modeToString</span><span class="p">(</span><span class="n">status</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"/"</span> <span class="o">&lt;&lt;</span> <span class="n">NodeMonitor</span><span class="o">::</span><span class="n">healthToString</span><span class="p">(</span><span class="n">status</span><span class="p">)</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="cm">/*
+             * It is left as an exercise for the reader to call the following services for each discovered node:
+             *  - uavcan.protocol.GetNodeInfo       - full node information (name, HW/SW version)
+             *  - uavcan.protocol.GetTransportStats - transport layer statistics (num transfers, errors, iface stats)
+             *  - uavcan.protocol.GetDataTypeInfo   - data type check: is supported? how used? is compatible?
+             */</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * The monitor provides a method that finds first node with worst health.
+     */</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">monitor</span><span class="p">.</span><span class="n">findNodeWithWorstHealth</span><span class="p">().</span><span class="n">isUnicast</span><span class="p">())</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * There's at least one node in the network.
+         */</span>
+        <span class="k">auto</span> <span class="n">status</span> <span class="o">=</span> <span class="n">monitor</span><span class="p">.</span><span class="n">getNodeStatus</span><span class="p">(</span><span class="n">monitor</span><span class="p">.</span><span class="n">findNodeWithWorstHealth</span><span class="p">());</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Worst node health: "</span> <span class="o">&lt;&lt;</span> <span class="n">NodeMonitor</span><span class="o">::</span><span class="n">healthToString</span><span class="p">(</span><span class="n">status</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * The network is empty.
+         */</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"No other nodes in the network"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Running the node.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="active-monitor">Active monitor</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;unordered_map&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/node_info_retriever.hpp&gt;      // For uavcan::NodeInfoRetriever
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="cm">/**
+ * This class will be collecting information from uavcan::NodeInfoRetriever via the interface uavcan::INodeInfoListener.
+ * Please refer to the documentation for uavcan::NodeInfoRetriever to learn more.
+ */</span>
+<span class="k">class</span> <span class="nc">NodeInfoCollector</span> <span class="n">final</span> <span class="o">:</span> <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">INodeInfoListener</span>
+<span class="p">{</span>
+    <span class="k">struct</span> <span class="n">NodeIDHash</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="kt">size_t</span> <span class="k">operator</span><span class="p">()(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">nid</span><span class="p">)</span> <span class="k">const</span> <span class="p">{</span> <span class="k">return</span> <span class="n">nid</span><span class="p">.</span><span class="n">get</span><span class="p">();</span> <span class="p">}</span>
+    <span class="p">};</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="n">unordered_map</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span><span class="p">,</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">GetNodeInfo</span><span class="o">::</span><span class="n">Response</span><span class="p">,</span> <span class="n">NodeIDHash</span><span class="o">&gt;</span> <span class="n">registry_</span><span class="p">;</span>
+
+    <span class="cm">/**
+     * Called when a response to GetNodeInfo request is received. This happens shortly after the node restarts or
+     * becomes online for the first time.
+     * @param node_id   Node ID of the node
+     * @param response  Node info struct
+     */</span>
+    <span class="kt">void</span> <span class="n">handleNodeInfoRetrieved</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">node_id</span><span class="p">,</span>
+                                 <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">GetNodeInfo</span><span class="o">::</span><span class="n">Response</span><span class="o">&amp;</span> <span class="n">node_info</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="n">registry_</span><span class="p">[</span><span class="n">node_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">node_info</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Called when the retriever decides that the node does not support the GetNodeInfo service.
+     * This method will never be called if the number of attempts is unlimited.
+     */</span>
+    <span class="kt">void</span> <span class="n">handleNodeInfoUnavailable</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">node_id</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="c1">// In this implementation we're using empty struct to indicate that the node info is missing.
+</span>        <span class="n">registry_</span><span class="p">[</span><span class="n">node_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">GetNodeInfo</span><span class="o">::</span><span class="n">Response</span><span class="p">();</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * This call is routed directly from @ref NodeStatusMonitor.
+     * Default implementation does nothing.
+     * @param event     Node status change event
+     */</span>
+    <span class="kt">void</span> <span class="n">handleNodeStatusChange</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeStatusMonitor</span><span class="o">::</span><span class="n">NodeStatusChangeEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">status</span><span class="p">.</span><span class="n">mode</span> <span class="o">==</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_OFFLINE</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">registry_</span><span class="p">.</span><span class="n">erase</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">node_id</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * This call is routed directly from @ref NodeStatusMonitor.
+     * Default implementation does nothing.
+     * @param msg       Node status message
+     */</span>
+    <span class="kt">void</span> <span class="n">handleNodeStatusMessage</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">&gt;&amp;</span> <span class="n">msg</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="k">auto</span> <span class="n">x</span> <span class="o">=</span> <span class="n">registry_</span><span class="p">.</span><span class="n">find</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">getSrcNodeID</span><span class="p">());</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">x</span> <span class="o">!=</span> <span class="n">registry_</span><span class="p">.</span><span class="n">end</span><span class="p">())</span>
+        <span class="p">{</span>
+            <span class="n">x</span><span class="o">-&gt;</span><span class="n">second</span><span class="p">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">msg</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="cm">/**
+     * Number if known nodes in the registry.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">getNumberOfNodes</span><span class="p">()</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">registry_</span><span class="p">.</span><span class="n">size</span><span class="p">());</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Returns a pointer to the node info structure for the given node, if such node is known.
+     * If the node is not known, a null pointer will be returned.
+     * Note that the pointer may be invalidated afterwards, so the object MUST be copied if further use is intended.
+     */</span>
+    <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">GetNodeInfo</span><span class="o">::</span><span class="n">Response</span><span class="o">*</span> <span class="n">getNodeInfo</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">node_id</span><span class="p">)</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="k">auto</span> <span class="n">x</span> <span class="o">=</span> <span class="n">registry_</span><span class="p">.</span><span class="n">find</span><span class="p">(</span><span class="n">node_id</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">x</span> <span class="o">!=</span> <span class="n">registry_</span><span class="p">.</span><span class="n">end</span><span class="p">())</span>
+        <span class="p">{</span>
+            <span class="k">return</span> <span class="o">&amp;</span><span class="n">x</span><span class="o">-&gt;</span><span class="n">second</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="k">return</span> <span class="nb">nullptr</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="mi">16384</span><span class="o">&gt;</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.active_monitor"</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Initializing the node info retriever object.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeInfoRetriever</span> <span class="n">retriever</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">retriever_res</span> <span class="o">=</span> <span class="n">retriever</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">retriever_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the retriever; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">retriever_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * This class is defined above in this file.
+     */</span>
+    <span class="n">NodeInfoCollector</span> <span class="n">collector</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * Registering our collector against the retriever object.
+     * The retriever class may keep the pointers to listeners in the dynamic memory pool,
+     * therefore the operation may fail if the node runs out of memory in the pool.
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">add_listener_res</span> <span class="o">=</span> <span class="n">retriever</span><span class="p">.</span><span class="n">addListener</span><span class="p">(</span><span class="o">&amp;</span><span class="n">collector</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">add_listener_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to add listener; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">add_listener_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Running the node.
+     * The application will be updating the list of nodes in the console window.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">500</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Rendering the info to the console window.
+         * Note that the window must be large in order to accommodate information for multiple nodes (use smaller font).
+         */</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\x1b</span><span class="s">[1J"</span>  <span class="c1">// Clear screen from the current cursor position to the beginning
+</span>                  <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\x1b</span><span class="s">[H"</span>   <span class="c1">// Move cursor to the coordinates 1,1
+</span>                  <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+
+        <span class="k">for</span> <span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;=</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span><span class="o">::</span><span class="n">Max</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">if</span> <span class="p">(</span><span class="k">auto</span> <span class="n">p</span> <span class="o">=</span> <span class="n">collector</span><span class="p">.</span><span class="n">getNodeInfo</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\033</span><span class="s">[32m---------- "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">" ----------</span><span class="se">\033</span><span class="s">[39m</span><span class="se">\n</span><span class="s">"</span> <span class="c1">// This line will be colored
+</span>                          <span class="o">&lt;&lt;</span> <span class="o">*</span><span class="n">p</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<p>The output may look like this:</p>
+
+<p><a class="imagelink" href="/Implementations/Libuavcan/Tutorials/9._Node_discovery/output.png" data-lightbox="/Implementations/Libuavcan/Tutorials/9._Node_discovery/output.png" data-title="Sample output">
+<img src="/Implementations/Libuavcan/Tutorials/9._Node_discovery/output.png" class="" style="" />
+</a></p>
+
+<h2 id="running-on-linux">Running on Linux</h2>
+
+<p>Build the applications using the following CMake script:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="c1"># Make sure to provide correct path to 'platform_linux.cpp'! See earlier tutorials for more info.</span>
+<span class="nb">add_executable</span><span class="p">(</span>passive passive.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>passive <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>active active.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>active <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>
