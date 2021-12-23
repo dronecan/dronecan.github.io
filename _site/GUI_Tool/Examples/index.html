@@ -1,0 +1,28 @@
+<h1 id="examples">Examples</h1>
+
+<p>This page collects some interesting or instructional use cases of the UAVCAN GUI Tool.</p>
+
+<p>Since the GUI Tool is built on top of Pyuavcan,
+you should also <a href="/Implementations/Pyuavcan/Examples/">check out its examples</a> -
+they are mostly compatible with the GUI Tool’s embedded IPython console,
+although some minor modifications may be required.</p>
+
+<h2 id="generating-audiovisual-feedback">Generating audiovisual feedback</h2>
+
+<p>Some nodes support UAVCAN messages from the namespace <code class="highlighter-rouge">uavcan.indication.*</code>
+that allow one to generate arbitrary indications on remote UAVCAN nodes.
+Here’s how this feature can be invoked from the interactive console of the UAVCAN GUI Tool:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="c"># Beeping at 1kHz for 0.1 seconds</span>
+<span class="n">broadcast</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">indication</span><span class="o">.</span><span class="n">BeepCommand</span><span class="p">(</span><span class="n">frequency</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mf">0.1</span><span class="p">))</span>
+
+<span class="c"># Beeping at 1kHz for 0.1 seconds every 0.5 seconds for 5 seconds</span>
+<span class="n">broadcast</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">indication</span><span class="o">.</span><span class="n">BeepCommand</span><span class="p">(</span><span class="n">frequency</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mf">0.1</span><span class="p">),</span> <span class="n">interval</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+
+<span class="c"># Turning all RGB LEDs of index 0 magenta</span>
+<span class="n">broadcast</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">indication</span><span class="o">.</span><span class="n">LightsCommand</span><span class="p">(</span><span class="n">commands</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">indication</span><span class="o">.</span><span class="n">SingleLightCommand</span><span class="p">(</span><span class="n">color</span><span class="o">=</span><span class="n">uavcan</span><span class="o">.</span><span class="n">equipment</span><span class="o">.</span><span class="n">indication</span><span class="o">.</span><span class="n">RGB565</span><span class="p">(</span><span class="n">red</span><span class="o">=</span><span class="mi">31</span><span class="p">,</span>
+                                                                                            <span class="n">green</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                                                                                            <span class="n">blue</span><span class="o">=</span><span class="mi">31</span><span class="p">))]))</span>
+</code></pre>
+</div>

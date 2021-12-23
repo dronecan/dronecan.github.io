@@ -1,0 +1,133 @@
+<h1 id="basic-concepts">Basic concepts</h1>
+
+<p><a class="imagelink" href="/Specification/figures/architecture.png" data-lightbox="/Specification/figures/architecture.png" data-title="DroneCAN architecture">
+<img src="/Specification/figures/architecture.png" class="thumbnail" style="max-width: 40%" />
+</a></p>
+
+<p>DroneCAN is a lightweight protocol designed to provide a highly reliable communication method for aerospace and robotic
+applications via the <a href="https://en.wikipedia.org/wiki/CAN_bus">CAN bus</a>.
+The DroneCAN network is a decentralized peer network, where each peer (node) has a unique numeric identifier -
+<em>node ID</em>.
+The nodes of the DroneCAN network can communicate using any of the following communication methods:</p>
+
+<ul>
+  <li>Message broadcasting - The primary method of data exchange with publish/subscribe semantics.</li>
+  <li>Service invocation - The communication method for peer-to-peer request/response interactions.</li>
+</ul>
+
+<p>For each type of communication, a predefined set of data structures is used, where each data structure has a unique
+identifier - the <em>data type ID</em> (DTID).
+Some data structures are standard and defined by the protocol specification; others may be specific to a particular
+application or vendor.</p>
+
+<p>Since every published message type has its own unique data type ID, and each node of the network has its own unique
+node ID, a pair of data type ID and node ID can be used to support redundant nodes with identical functionality
+inside the same network.</p>
+
+<p>Message and service data structures are defined using the
+<a href="/Specification/3._Data_structure_description_language"><em>data structure description language</em> (DSDL)</a>.
+The DSDL description is used to generate the serialization/deserialization code for a given data structure in each target
+programming language.
+The DSDL approach allows compilers to determine the data structure size statically, thus helping to optimize the protocol
+implementations in terms of memory consumption and performance.
+This feature is important for deeply embedded systems, where the memory footprint is critical and dynamic memory
+allocation may not be acceptable.</p>
+
+<p>On top of the standard data types, DroneCAN defines a set of standard high-level functions including: node health monitoring,
+network discovery, time synchronization, firmware update, and more. For more information see the part of the specification dedicated to
+the <a href="/Specification/6._Application_level_functions">standard data types and application level functions</a>.</p>
+
+<p>Serialized message and service data structures are exchanged by means of the
+<a href="/Specification/4._CAN_bus_transport_layer">CAN bus transport layer</a>, which implements automatic decomposition of long
+transfers into several CAN frames, allowing nodes to exchange data structures of arbitrary size.</p>
+
+<h2 id="message-broadcasting">Message broadcasting</h2>
+
+<p>Message broadcasting refers to the transmission of a serialized data structure over the CAN bus to other nodes. This is the primary DroneCAN data exchange mechanism.
+Typical use cases may include transfer of the following kinds of data (either cyclically or on an adhoc basis): sensor measurements,
+actuator commands, or equipment status information.</p>
+
+<p>A broadcast message includes the following information:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Content</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Payload</td>
+      <td>The serialized data structure</td>
+    </tr>
+    <tr>
+      <td>Data type ID</td>
+      <td>Numerical identifier that indicates how the data structure should be interpreted</td>
+    </tr>
+    <tr>
+      <td>Source node ID</td>
+      <td>The node ID of the transmitting node</td>
+    </tr>
+    <tr>
+      <td>Transfer ID</td>
+      <td>A small overflowing integer that increments with every transfer of this type of message from a given node</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="anonymous-message-broadcasting">Anonymous message broadcasting</h3>
+
+<p>Nodes that don’t have a unique node ID can publish <em>anonymous messages</em>.
+An anonymous message is different from a regular message in that it doesn’t contain source node ID.
+This kind of data exchange is useful during initial configuration of the node, particularly during dynamic node ID
+allocation procedure.</p>
+
+<h2 id="service-invocation">Service invocation</h2>
+
+<p>Service invocation is a two-step data exchange between exactly two nodes: a client and a server. The steps are:</p>
+
+<ol>
+  <li>The client sends a service request to the server.</li>
+  <li>The server takes appropriate actions and sends a response to the client.</li>
+</ol>
+
+<p>Typical use cases for this type of communication include: node configuration parameter update,
+firmware update, adhoc action request, file transfer, and other service tasks.</p>
+
+<p>Both service requests and service responses include the following data:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Content</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Payload</td>
+      <td>The serialized data structure</td>
+    </tr>
+    <tr>
+      <td>Data type ID</td>
+      <td>Numerical identifier that indicates how the data structure should be interpreted</td>
+    </tr>
+    <tr>
+      <td>Client node ID</td>
+      <td>Source node ID during request transfer, destination node ID during response transfer</td>
+    </tr>
+    <tr>
+      <td>Server node ID</td>
+      <td>Destination node ID during request transfer, source node ID during response transfer</td>
+    </tr>
+    <tr>
+      <td>Transfer ID</td>
+      <td>A small overflowing integer that increments with every call to this service from a given node</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Both request and response contain exactly the same values for all fields except payload, where the content is application defined.
+Clients can match the response with a corresponding request using the following fields: data type ID, client node ID,
+server node ID, and transfer ID.</p>

@@ -1,0 +1,589 @@
+<h1 id="dynamic-node-id-allocation">Dynamic node ID allocation</h1>
+
+<p>This advanced-level tutorial demonstrates how to implement dynamic node ID allocation using libuavcan.
+The reader must be familiar with the corresponding section of the specification, since the content of this
+chapter heavily relies on principles and concepts introduced there.</p>
+
+<p>In this tutorial, three applications will be implemented:</p>
+
+<ul>
+  <li><strong>Allocatee</strong> - a generic application that requests a dynamic node ID.
+It does not implement any specific application-level logic.</li>
+  <li><strong>Centralized allocator</strong> - one of two possible types of allocators.</li>
+  <li><strong>Distributed allocator</strong> - the other type of allocators, that can operate in a highly reliable redundant cluster.
+Note that the Linux platform driver contains an implementation of a distributed dynamic node ID allocator -
+learn more on the chapter dedicated to the Linux platform driver.</li>
+</ul>
+
+<h2 id="allocatee">Allocatee</h2>
+
+<p>Use this example as a guideline when implementing dynamic node ID allocation feature in your application.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;array&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/dynamic_node_id_client.hpp&gt;
+</span>
+<span class="cp">#if __linux__
+</span><span class="cm">/*
+ * This inclusion is specific to Linux.
+ * Refer to the function getUniqueID() below to learn why do we need this header.
+ */</span>
+<span class="cp"># include &lt;uavcan_linux/system_utils.hpp&gt;   // Pulls uavcan_linux::makeApplicationID()
+#endif
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">static</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span> <span class="n">NodeName</span> <span class="o">=</span> <span class="s">"org.uavcan.tutorial.allocatee"</span><span class="p">;</span>
+
+<span class="cm">/**
+ * This function is supposed to obtain the unique ID from the hardware the node is running on.
+ * The source of the unique ID depends on the platform; the examples provided below are valid for some of the
+ * popular platforms.
+ *
+ * - STM32:
+ *      The unique ID can be read from the Unique Device ID Register.
+ *      Its location varies from family to family; please refer to the user manual to find out the correct address
+ *      for your STM32. Note that the ID is 96-bit long, so it will have to be extended to 128-bit with zeros,
+ *      or with some additional vendor-specific values.
+ *
+ * - LPC11C24:
+ *      The 128-bit unique ID can be read using the IAP command ReadUID.
+ *      For example:
+ *      void readUniqueID(std::uint8_t out_uid[UniqueIDSize])
+ *      {
+ *          unsigned aligned_array[5] = {};  // out_uid may be unaligned, so we need to use temp array
+ *          unsigned iap_command = 58;
+ *          reinterpret_cast&lt;void(*)(void*, void*)&gt;(0x1FFF1FF1)(&amp;iap_command, aligned_array);
+ *          std::memcpy(out_uid, &amp;aligned_array[1], 16);
+ *      }
+ *
+ * - Linux:
+ *      Vast majority of Linux distributions (possibly all?) provide means of obtaining the unique ID from the hardware.
+ *      Libuavcan provides a class named uavcan_linux::MachineIDReader and a function uavcan_linux::makeApplicationID(),
+ *      which allow to automatically determine the unique ID of the hardware the application is running on.
+ *      Please refer to their definitions to learn more.
+ *      In this example, we're using uavcan_linux::makeApplicationID().
+ */</span>
+<span class="k">static</span> <span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span><span class="p">,</span> <span class="mi">16</span><span class="o">&gt;</span> <span class="n">getUniqueID</span><span class="p">()</span>
+<span class="p">{</span>
+<span class="cp">#if __linux__
+</span>    <span class="cm">/*
+     * uavcan_linux::MachineIDReader merely reads the ID of the hardware, whereas the function
+     * uavcan_linux::makeApplicationID() is more complicated - it takes the following two or three inputs,
+     * and then hashes them together to produce a unique ID:
+     *  - Machine ID, as obtained from uavcan_linux::MachineIDReader.
+     *  - Name of the node, as a string.
+     *  - Instance ID (OPTIONAL), which allows to distinguish different instances of similarly named nodes
+     *    running on the same Linux machine.
+     *
+     * The reason we can't use the machine ID directly is that it wouldn't allow us to run more than one UAVCAN node
+     * on a given Linux system, as it would lead to multiple nodes having the same unique ID, which is prohibited.
+     * The function makeApplicationID() works around that problem by means of extending the unique ID with a hash of
+     * the name of the local node, which allows to run differently named nodes on the same Linux system without
+     * conflicts.
+     *
+     * In situations where it is necessary to run multiple identically named nodes on the same Linux system, the
+     * function makeApplicationID() can be supplied with the third argument, representing the ID of the instance.
+     * The instance ID does only have to be unique for the given node name on the given Linux system, so
+     * avoiding conflicts should be pretty straightforward.
+     *
+     * In this example we don't want to run the application in multiple instances,
+     * therefore the instance ID is not used.
+     */</span>
+    <span class="k">return</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">makeApplicationID</span><span class="p">(</span><span class="n">uavcan_linux</span><span class="o">::</span><span class="n">MachineIDReader</span><span class="p">().</span><span class="n">read</span><span class="p">(),</span> <span class="n">NodeName</span><span class="p">);</span>
+<span class="cp">#else
+# error "Add support for your platform"
+#endif
+</span><span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="cm">/*
+     * The dynamic node ID allocation protocol allows the allocatee to ask the allocator for some particular node ID
+     * value, if necessary. This feature is optional. By default, if no preference has been declared, the allocator
+     * will pick any free node ID at its own discretion.
+     */</span>
+    <span class="kt">int</span> <span class="n">preferred_node_id</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">preferred_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"No preference for a node ID value.</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"To assign a preferred node ID, pass it as a command line argument:</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\t</span><span class="s">"</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;preferred-node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Configuring the node.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="mi">16384</span><span class="o">&gt;</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">NodeName</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+
+    <span class="k">const</span> <span class="k">auto</span> <span class="n">unique_id</span> <span class="o">=</span> <span class="n">getUniqueID</span><span class="p">();</span>                               <span class="c1">// Reading the unique ID of this node
+</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">HardwareVersion</span> <span class="n">hwver</span><span class="p">;</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">copy</span><span class="p">(</span><span class="n">unique_id</span><span class="p">.</span><span class="n">begin</span><span class="p">(),</span> <span class="n">unique_id</span><span class="p">.</span><span class="n">end</span><span class="p">(),</span> <span class="n">hwver</span><span class="p">.</span><span class="n">unique_id</span><span class="p">.</span><span class="n">begin</span><span class="p">());</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">hwver</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>                                    <span class="c1">// Printing to stdout to show the values
+</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setHardwareVersion</span><span class="p">(</span><span class="n">hwver</span><span class="p">);</span>                                     <span class="c1">// Copying the value to the node's internals
+</span>
+    <span class="cm">/*
+     * Starting the node normally, in passive mode (i.e. without node ID assigned).
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Initializing the dynamic node ID allocation client.
+     * By default, the client will use TransferPriority::OneHigherThanLowest for communications with the allocator;
+     * this can be overriden through the third argument to the start() method.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">DynamicNodeIDClient</span> <span class="n">client</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="kt">int</span> <span class="n">client_start_res</span> <span class="o">=</span> <span class="n">client</span><span class="p">.</span><span class="n">start</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">getHardwareVersion</span><span class="p">().</span><span class="n">unique_id</span><span class="p">,</span>    <span class="c1">// USING THE SAME UNIQUE ID AS ABOVE
+</span>                                        <span class="n">preferred_node_id</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">client_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the dynamic node ID client: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">client_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Waiting for the client to obtain for us a node ID.
+     * This may take a few seconds.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Allocation is in progress"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+    <span class="k">while</span> <span class="p">(</span><span class="o">!</span><span class="n">client</span><span class="p">.</span><span class="n">isAllocationComplete</span><span class="p">())</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">200</span><span class="p">));</span>    <span class="c1">// Spin duration doesn't matter
+</span>        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"."</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">Dynamic node ID "</span>
+              <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">client</span><span class="p">.</span><span class="n">getAllocatedNodeID</span><span class="p">().</span><span class="n">get</span><span class="p">())</span>
+              <span class="o">&lt;&lt;</span> <span class="s">" has been allocated by the allocator with node ID "</span>
+              <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">client</span><span class="p">.</span><span class="n">getAllocatorNodeID</span><span class="p">().</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * When the allocation is done, the client object can be deleted.
+     * Now we need to assign the newly allocated ID to the node object.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">client</span><span class="p">.</span><span class="n">getAllocatedNodeID</span><span class="p">());</span>
+
+    <span class="cm">/*
+     * Now we can run the node normally.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">spin_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">getInfinite</span><span class="p">());</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">spin_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">spin_res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<p>Possible output:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>No preference for a node ID value.
+To assign a preferred node ID, pass it as a command line argument:
+        ./allocatee &lt;preferred-node-id&gt;
+major: 0
+minor: 0
+unique_id: [68, 192, 139, 99, 94, 5, 244, 188, 76, 138, 148, 82, 94, 146, 130, 178]
+certificate_of_authenticity: ""
+Allocation is in progress...................................................
+Dynamic node ID 125 has been allocated by the allocator with node ID 1
+</code></pre>
+</div>
+
+<h2 id="centralized-allocator">Centralized allocator</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;array&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/dynamic_node_id_server/centralized.hpp&gt;
+</span>
+<span class="cm">/*
+ * We're using POSIX-dependent classes in this example.
+ * This means that the example will only work as-is on a POSIX-compliant system (e.g. Linux, NuttX),
+ * otherwise the said classes will have to be re-implemented.
+ */</span>
+<span class="cp">#include &lt;uavcan_posix/dynamic_node_id_server/file_storage_backend.hpp&gt;
+#include &lt;uavcan_posix/dynamic_node_id_server/file_event_tracer.hpp&gt;
+</span>
+<span class="cp">#if __linux__
+</span><span class="cm">/*
+ * This inclusion is specific to Linux.
+ * Refer to the function getUniqueID() below to learn why do we need this header.
+ */</span>
+<span class="cp"># include &lt;uavcan_linux/system_utils.hpp&gt;   // Pulls uavcan_linux::makeApplicationID()
+#endif
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">static</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span> <span class="n">NodeName</span> <span class="o">=</span> <span class="s">"org.uavcan.tutorial.centralized_allocator"</span><span class="p">;</span>
+
+<span class="cm">/**
+ * Refer to the Allocatee example to learn more about this function.
+ */</span>
+<span class="k">static</span> <span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span><span class="p">,</span> <span class="mi">16</span><span class="o">&gt;</span> <span class="n">getUniqueID</span><span class="p">(</span><span class="kt">uint8_t</span> <span class="n">instance_id</span><span class="p">)</span>
+<span class="p">{</span>
+<span class="cp">#if __linux__
+</span>    <span class="k">return</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">makeApplicationID</span><span class="p">(</span><span class="n">uavcan_linux</span><span class="o">::</span><span class="n">MachineIDReader</span><span class="p">().</span><span class="n">read</span><span class="p">(),</span> <span class="n">NodeName</span><span class="p">,</span> <span class="n">instance_id</span><span class="p">);</span>
+<span class="cp">#else
+# error "Add support for your platform"
+#endif
+</span><span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="cm">/*
+     * Configuring the node.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="mi">16384</span><span class="o">&gt;</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">NodeName</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+
+    <span class="k">const</span> <span class="k">auto</span> <span class="n">unique_id</span> <span class="o">=</span> <span class="n">getUniqueID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>                   <span class="c1">// Using the node ID as instance ID
+</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">HardwareVersion</span> <span class="n">hwver</span><span class="p">;</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">copy</span><span class="p">(</span><span class="n">unique_id</span><span class="p">.</span><span class="n">begin</span><span class="p">(),</span> <span class="n">unique_id</span><span class="p">.</span><span class="n">end</span><span class="p">(),</span> <span class="n">hwver</span><span class="p">.</span><span class="n">unique_id</span><span class="p">.</span><span class="n">begin</span><span class="p">());</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">hwver</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>                                    <span class="c1">// Printing to stdout to show the values
+</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setHardwareVersion</span><span class="p">(</span><span class="n">hwver</span><span class="p">);</span>                                     <span class="c1">// Copying the value to the node's internals
+</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Event tracer is used to log events from the allocator class.
+     *
+     * Each event contains two attributes: event code and event argument (64-bit signed integer).
+     *
+     * If such logging is undesirable, an empty tracer can be implemented through the interface
+     * uavcan::dynamic_node_id_server::IEventTracer.
+     *
+     * The interface also provides a static method getEventName(), which maps event codes to human-readable names.
+     *
+     * The tracer used here just logs events to a text file.
+     */</span>
+    <span class="n">uavcan_posix</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">FileEventTracer</span> <span class="n">event_tracer</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">event_tracer_res</span> <span class="o">=</span> <span class="n">event_tracer</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="s">"uavcan_db_centralized/event.log"</span><span class="p">);</span>  <span class="c1">// Using a hard-coded path here.
+</span>    <span class="k">if</span> <span class="p">(</span><span class="n">event_tracer_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the event tracer; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">event_tracer_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Storage backend implements the interface uavcan::dynamic_node_id_server::IStorageBackend.
+     * It is used by the allocator to access and modify the persistent key/value storage, where it keeps data.
+     *
+     * The implementation used here uses the file system to keep the data, where file names are KEYS, and
+     * the contents of the files are VALUES. Note that the allocator only uses ASCII alphanumeric keys and values.
+     */</span>
+    <span class="n">uavcan_posix</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">FileStorageBackend</span> <span class="n">storage_backend</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">storage_res</span> <span class="o">=</span> <span class="n">storage_backend</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="s">"uavcan_db_centralized"</span><span class="p">);</span>              <span class="c1">// Using a hard-coded path here.
+</span>    <span class="k">if</span> <span class="p">(</span><span class="n">storage_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the storage backend; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">storage_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Starting the allocator itself.
+     * Its constructor accepts references to the node, to the event tracer, and to the storage backend.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">CentralizedServer</span> <span class="n">server</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">storage_backend</span><span class="p">,</span> <span class="n">event_tracer</span><span class="p">);</span>
+
+    <span class="c1">// USING THE SAME UNIQUE ID HERE
+</span>    <span class="k">const</span> <span class="kt">int</span> <span class="n">server_init_res</span> <span class="o">=</span> <span class="n">server</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">getHardwareVersion</span><span class="p">().</span><span class="n">unique_id</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">server_init_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the server; error "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">server_init_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Centralized server started successfully"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * Running the node, and printing some basic status information of the server.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">spin_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">500</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">spin_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">spin_res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Printing some basic info.
+         */</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\x1b</span><span class="s">[1J"</span>  <span class="c1">// Clear screen from the current cursor position to the beginning
+</span>                  <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\x1b</span><span class="s">[H"</span>   <span class="c1">// Move cursor to the coordinates 1,1
+</span>                  <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node ID           "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">getNodeID</span><span class="p">().</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Node failures     "</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getInternalFailureCount</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="distributed-allocator">Distributed allocator</h2>
+
+<p>The size of the cluster can be configured via a command line argument.
+Once a majority of the nodes participating in the cluster are up,
+the cluster can serve allocation requests.</p>
+
+<p>For example, a three-node cluster can be started as follows (execute each command in a different terminal):</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code># Terminal 1
+$ ./distributed_allocator 1 3
+# Terminal 2
+$ ./distributed_allocator 2 3
+# Terminal 3
+$ ./distributed_allocator 3 3
+</code></pre>
+</div>
+
+<p>Also, a distributed allocator can work in a non-redundant configuration,
+in which case it behaves the same way as a centralized allocator:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>$ ./distributed_allocator 1 1
+</code></pre>
+</div>
+
+<p>The source code is provided below.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;cstdlib&gt;
+#include &lt;array&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/dynamic_node_id_server/distributed.hpp&gt;
+</span>
+<span class="cm">/*
+ * We're using POSIX-dependent classes in this example.
+ * This means that the example will only work as-is on a POSIX-compliant system (e.g. Linux, NuttX),
+ * otherwise the said classes will have to be re-implemented.
+ */</span>
+<span class="cp">#include &lt;uavcan_posix/dynamic_node_id_server/file_storage_backend.hpp&gt;
+#include &lt;uavcan_posix/dynamic_node_id_server/file_event_tracer.hpp&gt;
+</span>
+<span class="cp">#if __linux__
+</span><span class="cm">/*
+ * This inclusion is specific to Linux.
+ * Refer to the function getUniqueID() below to learn why do we need this header.
+ */</span>
+<span class="cp"># include &lt;uavcan_linux/system_utils.hpp&gt;   // Pulls uavcan_linux::makeApplicationID()
+#endif
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">static</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span> <span class="n">NodeName</span> <span class="o">=</span> <span class="s">"org.uavcan.tutorial.distributed_allocator"</span><span class="p">;</span>
+
+<span class="cm">/**
+ * Refer to the Allocatee example to learn more about this function.
+ */</span>
+<span class="k">static</span> <span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span><span class="p">,</span> <span class="mi">16</span><span class="o">&gt;</span> <span class="n">getUniqueID</span><span class="p">(</span><span class="kt">uint8_t</span> <span class="n">instance_id</span><span class="p">)</span>
+<span class="p">{</span>
+<span class="cp">#if __linux__
+</span>    <span class="k">return</span> <span class="n">uavcan_linux</span><span class="o">::</span><span class="n">makeApplicationID</span><span class="p">(</span><span class="n">uavcan_linux</span><span class="o">::</span><span class="n">MachineIDReader</span><span class="p">().</span><span class="n">read</span><span class="p">(),</span> <span class="n">NodeName</span><span class="p">,</span> <span class="n">instance_id</span><span class="p">);</span>
+<span class="cp">#else
+# error "Add support for your platform"
+#endif
+</span><span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt; &lt;cluster-size&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">cluster_size</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">]);</span>
+
+    <span class="cm">/*
+     * Configuring the node.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="mi">16384</span><span class="o">&gt;</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">NodeName</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+
+    <span class="k">const</span> <span class="k">auto</span> <span class="n">unique_id</span> <span class="o">=</span> <span class="n">getUniqueID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>                   <span class="c1">// Using the node ID as instance ID
+</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">HardwareVersion</span> <span class="n">hwver</span><span class="p">;</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">copy</span><span class="p">(</span><span class="n">unique_id</span><span class="p">.</span><span class="n">begin</span><span class="p">(),</span> <span class="n">unique_id</span><span class="p">.</span><span class="n">end</span><span class="p">(),</span> <span class="n">hwver</span><span class="p">.</span><span class="n">unique_id</span><span class="p">.</span><span class="n">begin</span><span class="p">());</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">hwver</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>                                    <span class="c1">// Printing to stdout to show the values
+</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setHardwareVersion</span><span class="p">(</span><span class="n">hwver</span><span class="p">);</span>                                     <span class="c1">// Copying the value to the node's internals
+</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Initializing the event tracer - refer to the Centralized Allocator example for details.
+     */</span>
+    <span class="n">uavcan_posix</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">FileEventTracer</span> <span class="n">event_tracer</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">event_tracer_res</span> <span class="o">=</span> <span class="n">event_tracer</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="s">"uavcan_db_distributed/event.log"</span><span class="p">);</span>  <span class="c1">// Using a hard-coded path here.
+</span>    <span class="k">if</span> <span class="p">(</span><span class="n">event_tracer_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the event tracer; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">event_tracer_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Initializing the storage backend - refer to the Centralized Allocator example for details.
+     */</span>
+    <span class="n">uavcan_posix</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">FileStorageBackend</span> <span class="n">storage_backend</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">storage_res</span> <span class="o">=</span> <span class="n">storage_backend</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="s">"uavcan_db_distributed"</span><span class="p">);</span>              <span class="c1">// Using a hard-coded path here.
+</span>    <span class="k">if</span> <span class="p">(</span><span class="n">storage_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the storage backend; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">storage_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Starting the allocator itself.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">DistributedServer</span> <span class="n">server</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">storage_backend</span><span class="p">,</span> <span class="n">event_tracer</span><span class="p">);</span>
+
+    <span class="c1">// USING THE SAME UNIQUE ID HERE
+</span>    <span class="k">const</span> <span class="kt">int</span> <span class="n">server_init_res</span> <span class="o">=</span> <span class="n">server</span><span class="p">.</span><span class="n">init</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">getHardwareVersion</span><span class="p">().</span><span class="n">unique_id</span><span class="p">,</span> <span class="n">cluster_size</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">server_init_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the server; error "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">server_init_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Distributed server started successfully"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * Running the node, and printing some basic status information of the server.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">spin_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">500</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">spin_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">spin_res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Printing some basic info.
+         * The reader is adviced to refer to the dynamic node ID allocator application provided with the
+         * Linux platform driver to see how to retrieve more detailed status information from the library.
+         */</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\x1b</span><span class="s">[1J"</span>  <span class="c1">// Clear screen from the current cursor position to the beginning
+</span>                  <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\x1b</span><span class="s">[H"</span>   <span class="c1">// Move cursor to the coordinates 1,1
+</span>                  <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+
+        <span class="k">const</span> <span class="k">auto</span> <span class="n">time</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">getMonotonicTime</span><span class="p">();</span>
+
+        <span class="k">const</span> <span class="k">auto</span> <span class="n">raft_state_to_string</span> <span class="o">=</span> <span class="p">[](</span><span class="n">uavcan</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">distributed</span><span class="o">::</span><span class="n">RaftCore</span><span class="o">::</span><span class="n">ServerState</span> <span class="n">s</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">switch</span> <span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="p">{</span>
+            <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">distributed</span><span class="o">::</span><span class="n">RaftCore</span><span class="o">::</span><span class="n">ServerStateFollower</span><span class="o">:</span>  <span class="k">return</span> <span class="s">"Follower"</span><span class="p">;</span>
+            <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">distributed</span><span class="o">::</span><span class="n">RaftCore</span><span class="o">::</span><span class="n">ServerStateCandidate</span><span class="o">:</span> <span class="k">return</span> <span class="s">"Candidate"</span><span class="p">;</span>
+            <span class="k">case</span> <span class="n">uavcan</span><span class="p">:</span><span class="o">:</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">distributed</span><span class="o">::</span><span class="n">RaftCore</span><span class="o">::</span><span class="n">ServerStateLeader</span><span class="o">:</span>    <span class="k">return</span> <span class="s">"Leader"</span><span class="p">;</span>
+            <span class="k">default</span><span class="o">:</span> <span class="k">return</span> <span class="s">"BADSTATE"</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">};</span>
+
+        <span class="k">static</span> <span class="k">const</span> <span class="k">auto</span> <span class="n">duration_to_string</span> <span class="o">=</span> <span class="p">[](</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span> <span class="n">dur</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">uavcan</span><span class="o">::</span><span class="n">MakeString</span><span class="o">&lt;</span><span class="mi">16</span><span class="o">&gt;::</span><span class="n">Type</span> <span class="n">str</span><span class="p">;</span>   <span class="c1">// N.B.: this is faster than std::string, as it doesn't use heap
+</span>            <span class="n">str</span><span class="p">.</span><span class="n">appendFormatted</span><span class="p">(</span><span class="s">"%.1f"</span><span class="p">,</span> <span class="n">dur</span><span class="p">.</span><span class="n">toUSec</span><span class="p">()</span> <span class="o">/</span> <span class="mf">1e6</span><span class="p">);</span>
+            <span class="k">return</span> <span class="n">str</span><span class="p">;</span>
+        <span class="p">};</span>
+
+        <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">dynamic_node_id_server</span><span class="o">::</span><span class="n">distributed</span><span class="o">::</span><span class="n">StateReport</span> <span class="n">report</span><span class="p">(</span><span class="n">server</span><span class="p">);</span>
+
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node ID           "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">getNodeID</span><span class="p">().</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"State             "</span> <span class="o">&lt;&lt;</span> <span class="n">raft_state_to_string</span><span class="p">(</span><span class="n">report</span><span class="p">.</span><span class="n">state</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Last log index    "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">report</span><span class="p">.</span><span class="n">last_log_index</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Commit index      "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">report</span><span class="p">.</span><span class="n">commit_index</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Last log term     "</span> <span class="o">&lt;&lt;</span> <span class="n">report</span><span class="p">.</span><span class="n">last_log_term</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Current term      "</span> <span class="o">&lt;&lt;</span> <span class="n">report</span><span class="p">.</span><span class="n">current_term</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Voted for         "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">report</span><span class="p">.</span><span class="n">voted_for</span><span class="p">.</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Since activity    "</span> <span class="o">&lt;&lt;</span> <span class="n">duration_to_string</span><span class="p">(</span><span class="n">time</span> <span class="o">-</span> <span class="n">report</span><span class="p">.</span><span class="n">last_activity_timestamp</span><span class="p">).</span><span class="n">c_str</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Random timeout    "</span> <span class="o">&lt;&lt;</span> <span class="n">duration_to_string</span><span class="p">(</span><span class="n">report</span><span class="p">.</span><span class="n">randomized_timeout</span><span class="p">).</span><span class="n">c_str</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Unknown nodes     "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">report</span><span class="p">.</span><span class="n">num_unknown_nodes</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="s">"Node failures     "</span> <span class="o">&lt;&lt;</span> <span class="n">node</span><span class="p">.</span><span class="n">getInternalFailureCount</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="s">"</span><span class="se">\n</span><span class="s">"</span>
+                  <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">flush</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="running-on-linux">Running on Linux</h2>
+
+<p>Build the applications using the following CMake script:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="c1"># Make sure to provide correct path to 'platform_linux.cpp'! See earlier tutorials for more info.</span>
+<span class="nb">add_executable</span><span class="p">(</span>allocatee
+               allocatee.cpp
+               <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>allocatee <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>centralized_allocator
+               centralized_allocator.cpp
+               <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>centralized_allocator <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>distributed_allocator
+               distributed_allocator.cpp
+               <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>distributed_allocator <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>

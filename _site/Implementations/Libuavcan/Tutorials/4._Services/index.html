@@ -1,0 +1,419 @@
+<h1 id="services">Services</h1>
+
+<p>This tutorial presents two applications:</p>
+
+<ul>
+  <li>Server - provides a service of type <code class="highlighter-rouge">uavcan.protocol.file.BeginFirmwareUpdate</code>.</li>
+  <li>Client - calls the same service type on a specified node.
+Server’s node ID is provided to the application as a command-line argument.</li>
+</ul>
+
+<h2 id="server">Server</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;cstdio&gt;
+#include &lt;iostream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+</span>
+<span class="cm">/*
+ * This example uses the service type uavcan.protocol.file.BeginFirmwareUpdate.
+ */</span>
+<span class="cp">#include &lt;uavcan/protocol/file/BeginFirmwareUpdate.hpp&gt;
+</span>
+
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+<span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">Node</span><span class="p">;</span>
+
+<span class="k">static</span> <span class="n">Node</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="k">auto</span><span class="o">&amp;</span> <span class="n">node</span> <span class="o">=</span> <span class="n">getNode</span><span class="p">();</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.server"</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Starting the server.
+     * This server doesn't do anything useful; it just prints the received request and returns some meaningless
+     * response.
+     *
+     * The service callback accepts two arguments:
+     *  - a reference to a request structure (input)
+     *  - a reference to a default-initialized response structure (output)
+     * The type of the input can be either of these two:
+     *  - T::Request&amp;
+     *  - uavcan::ReceivedDataStructure&lt;T::Request&gt;&amp;
+     * The type of the output is strictly T::Response&amp;.
+     * Note that for the service data structure, it is not possible to instantiate T itself, nor does it make any
+     * sense.
+     *
+     * In C++11 mode, callback type defaults to std::function&lt;&gt;.
+     * In C++03 mode, callback type defaults to a plain function pointer; use a binder object to call member
+     * functions as callbacks (refer to uavcan::MethodBinder&lt;&gt;).
+     */</span>
+    <span class="k">using</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">file</span><span class="o">::</span><span class="n">BeginFirmwareUpdate</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">ServiceServer</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="o">&gt;</span> <span class="n">srv</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">srv_start_res</span> <span class="o">=</span> <span class="n">srv</span><span class="p">.</span><span class="n">start</span><span class="p">(</span>
+        <span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ReceivedDataStructure</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="o">::</span><span class="n">Request</span><span class="o">&gt;&amp;</span> <span class="n">req</span><span class="p">,</span> <span class="n">BeginFirmwareUpdate</span><span class="o">::</span><span class="n">Response</span><span class="o">&amp;</span> <span class="n">rsp</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">req</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="n">rsp</span><span class="p">.</span><span class="n">error</span> <span class="o">=</span> <span class="n">rsp</span><span class="p">.</span><span class="n">ERROR_UNKNOWN</span><span class="p">;</span>
+            <span class="n">rsp</span><span class="p">.</span><span class="n">optional_error_message</span> <span class="o">=</span> <span class="s">"Our sun is dying"</span><span class="p">;</span>
+        <span class="p">});</span>
+    <span class="cm">/*
+     * C++03 WARNING
+     * The code above will not compile in C++03, because it uses a lambda function.
+     * In order to compile the code in C++03, move the code from the lambda to a standalone static function.
+     * Use uavcan::MethodBinder&lt;&gt; to invoke member functions.
+     */</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">srv_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>                   <span class="c1">// TODO proper error handling
+</span>    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Node loop.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">printf</span><span class="p">(</span><span class="s">"Transient failure: %d</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">res</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="client">Client</h2>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+</span>
+<span class="cm">/*
+ * This example uses the service type uavcan.protocol.file.BeginFirmwareUpdate.
+ */</span>
+<span class="cp">#include &lt;uavcan/protocol/file/BeginFirmwareUpdate.hpp&gt;
+</span>
+
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+<span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">Node</span><span class="p">;</span>
+
+<span class="k">static</span> <span class="n">Node</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">node</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt; &lt;server-node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+    <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">server_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">]);</span>
+
+    <span class="k">auto</span><span class="o">&amp;</span> <span class="n">node</span> <span class="o">=</span> <span class="n">getNode</span><span class="p">();</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="s">"org.uavcan.tutorial.client"</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">node_start_res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">node_start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_start_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Initializing the client. Remember that client objects are noncopyable.
+     * Note that calling client.init() is not necessary - the object can be initialized ad hoc during the first call.
+     */</span>
+    <span class="k">using</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">file</span><span class="o">::</span><span class="n">BeginFirmwareUpdate</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">ServiceClient</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="o">&gt;</span> <span class="n">client</span><span class="p">(</span><span class="n">node</span><span class="p">);</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">client_init_res</span> <span class="o">=</span> <span class="n">client</span><span class="p">.</span><span class="n">init</span><span class="p">();</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">client_init_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to init the client; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">client_init_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Setting the callback.
+     * This callback will be executed when the call is completed.
+     * Note that the callback will ALWAYS be called even if the service call has timed out; this guarantee
+     * allows to simplify error handling in the application.
+     */</span>
+    <span class="n">client</span><span class="p">.</span><span class="n">setCallback</span><span class="p">([](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ServiceCallResult</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="o">&gt;&amp;</span> <span class="n">call_result</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">call_result</span><span class="p">.</span><span class="n">isSuccessful</span><span class="p">())</span>  <span class="c1">// Whether the call was successful, i.e. whether the response was received
+</span>            <span class="p">{</span>
+                <span class="c1">// The result can be directly streamed; the output will be formatted in human-readable YAML.
+</span>                <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">call_result</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+            <span class="k">else</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Service call to node "</span>
+                          <span class="o">&lt;&lt;</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="p">(</span><span class="n">call_result</span><span class="p">.</span><span class="n">getCallID</span><span class="p">().</span><span class="n">server_node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span>
+                          <span class="o">&lt;&lt;</span> <span class="s">" has failed"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">});</span>
+    <span class="cm">/*
+     * C++03 WARNING
+     * The code above will not compile in C++03, because it uses a lambda function.
+     * In order to compile the code in C++03, move the code from the lambda to a standalone static function.
+     * Use uavcan::MethodBinder&lt;&gt; to invoke member functions.
+     */</span>
+
+    <span class="cm">/*
+     * Service call timeout can be overridden if needed, though it's not recommended.
+     */</span>
+    <span class="n">client</span><span class="p">.</span><span class="n">setRequestTimeout</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">200</span><span class="p">));</span>
+
+    <span class="cm">/*
+     * It is possible to adjust priority of the outgoing service request transfers.
+     * According to the specification, the services are supposed to use the same priority for response transfers.
+     * Default priority is medium, which is 16.
+     */</span>
+    <span class="n">client</span><span class="p">.</span><span class="n">setPriority</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">TransferPriority</span><span class="o">::</span><span class="n">OneHigherThanLowest</span><span class="p">);</span>
+
+    <span class="cm">/*
+     * Calling the remote service.
+     * Generated service data types have two nested types:
+     *   T::Request  - request data structure
+     *   T::Response - response data structure
+     * For the service data structure, it is not possible to instantiate T itself, nor does it make any sense.
+     */</span>
+    <span class="n">BeginFirmwareUpdate</span><span class="o">::</span><span class="n">Request</span> <span class="n">request</span><span class="p">;</span>
+    <span class="n">request</span><span class="p">.</span><span class="n">image_file_remote_path</span><span class="p">.</span><span class="n">path</span> <span class="o">=</span> <span class="s">"/foo/bar"</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * It is possible to perform multiple concurrent calls using the same client object.
+     * The class ServiceClient provides the following methods that allow to control execution of each call:
+     *
+     *  int call(NodeID server_node_id, const RequestType&amp; request)
+     *      Initiate a new non-blocking call.
+     *
+     *  int call(NodeID server_node_id, const RequestType&amp; request, ServiceCallID&amp; out_call_id)
+     *      Initiate a new non-blocking call and return its ServiceCallID descriptor by reference.
+     *      The descriptor allows to query the progress of the call or cancel it later.
+     *
+     *  void cancelCall(ServiceCallID call_id)
+     *      Cancel a specific call using its descriptor.
+     *
+     *  void cancelAllCalls()
+     *      Cancel all calls.
+     *
+     *  bool hasPendingCallToServer(NodeID server_node_id) const
+     *      Whether the client object has pending calls to the given server at the moment.
+     *
+     *  unsigned getNumPendingCalls() const
+     *      Returns the total number of pending calls at the moment.
+     *
+     *  bool hasPendingCalls() const
+     *      Whether the client object has any pending calls at the moment.
+     */</span>
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">call_res</span> <span class="o">=</span> <span class="n">client</span><span class="p">.</span><span class="n">call</span><span class="p">(</span><span class="n">server_node_id</span><span class="p">,</span> <span class="n">request</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">call_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Unable to perform service call: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">call_res</span><span class="p">));</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * Spin until the call is completed, then exit.
+     */</span>
+    <span class="n">node</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+    <span class="k">while</span> <span class="p">(</span><span class="n">client</span><span class="p">.</span><span class="n">hasPendingCalls</span><span class="p">())</span>  <span class="c1">// Whether the call has completed (doesn't matter successfully or not)
+</span>    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">10</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h3 id="compatibility-with-older-c-standards">Compatibility with older C++ standards</h3>
+
+<p>The following code demonstrates how to work-around the lack of important features in older C++ standards (prior C++11).</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cp">#include &lt;iostream&gt;
+#include &lt;unistd.h&gt;
+#include &lt;uavcan/uavcan.hpp&gt;
+#include &lt;uavcan/protocol/file/BeginFirmwareUpdate.hpp&gt;
+</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="k">using</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">file</span><span class="o">::</span><span class="n">BeginFirmwareUpdate</span><span class="p">;</span>
+
+<span class="cm">/**
+ * This class demonstrates how to use uavcan::MethodBinder with service clients in C++03.
+ * In C++11 and newer standards it is recommended to use lambdas and std::function&lt;&gt; instead, as this approach
+ * would be much easier to implement and to understand.
+ */</span>
+<span class="k">class</span> <span class="nc">Node</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="k">const</span> <span class="kt">unsigned</span> <span class="n">NodeMemoryPoolSize</span> <span class="o">=</span> <span class="mi">16384</span><span class="p">;</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;</span><span class="n">NodeMemoryPoolSize</span><span class="o">&gt;</span> <span class="n">node_</span><span class="p">;</span>
+
+    <span class="cm">/*
+     * Instantiation of MethodBinder
+     */</span>
+    <span class="k">typedef</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MethodBinder</span><span class="o">&lt;</span><span class="n">Node</span><span class="o">*</span><span class="p">,</span> <span class="kt">void</span> <span class="p">(</span><span class="n">Node</span><span class="o">::*</span><span class="p">)(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ServiceCallResult</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="o">&gt;&amp;</span><span class="p">)</span> <span class="k">const</span><span class="o">&gt;</span>
+        <span class="n">BeginFirmwareUpdateCallbackBinder</span><span class="p">;</span>
+
+    <span class="kt">void</span> <span class="nf">beginFirmwareUpdateCallback</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ServiceCallResult</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="o">&gt;&amp;</span> <span class="n">res</span><span class="p">)</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">res</span><span class="p">.</span><span class="n">isSuccessful</span><span class="p">())</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Service call to node "</span>
+                      <span class="o">&lt;&lt;</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="p">(</span><span class="n">res</span><span class="p">.</span><span class="n">getCallID</span><span class="p">().</span><span class="n">server_node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span>
+                      <span class="o">&lt;&lt;</span> <span class="s">" has failed"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="n">Node</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">self_node_id</span><span class="p">,</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span> <span class="n">self_node_name</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">node_</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">())</span>
+    <span class="p">{</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">self_node_name</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">start</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">start_res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the node: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">start_res</span><span class="p">));</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">execute</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">server_node_id</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * Initializing the request structure
+         */</span>
+        <span class="n">BeginFirmwareUpdate</span><span class="o">::</span><span class="n">Request</span> <span class="n">request</span><span class="p">;</span>
+        <span class="n">request</span><span class="p">.</span><span class="n">image_file_remote_path</span><span class="p">.</span><span class="n">path</span> <span class="o">=</span> <span class="s">"/foo/bar"</span><span class="p">;</span>
+
+        <span class="cm">/*
+         * Initializing the client object
+         */</span>
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">ServiceClient</span><span class="o">&lt;</span><span class="n">BeginFirmwareUpdate</span><span class="p">,</span> <span class="n">BeginFirmwareUpdateCallbackBinder</span><span class="o">&gt;</span> <span class="n">client</span><span class="p">(</span><span class="n">node_</span><span class="p">);</span>
+
+        <span class="n">client</span><span class="p">.</span><span class="n">setCallback</span><span class="p">(</span><span class="n">BeginFirmwareUpdateCallbackBinder</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">Node</span><span class="o">::</span><span class="n">beginFirmwareUpdateCallback</span><span class="p">));</span>
+
+        <span class="cm">/*
+         * Calling
+         */</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">call_res</span> <span class="o">=</span> <span class="n">client</span><span class="p">.</span><span class="n">call</span><span class="p">(</span><span class="n">server_node_id</span><span class="p">,</span> <span class="n">request</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">call_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Unable to perform service call: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">call_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Spinning the node until the call is completed
+         */</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+        <span class="k">while</span> <span class="p">(</span><span class="n">client</span><span class="p">.</span><span class="n">hasPendingCalls</span><span class="p">())</span>  <span class="c1">// Whether the call has completed (doesn't matter successfully or not)
+</span>        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">10</span><span class="p">));</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt; &lt;server-node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+    <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">server_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">]);</span>
+
+    <span class="n">Node</span> <span class="n">node</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">,</span> <span class="s">"org.uavcan.tutorial.clientcpp03"</span><span class="p">);</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+
+    <span class="n">node</span><span class="p">.</span><span class="n">execute</span><span class="p">(</span><span class="n">server_node_id</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h2 id="running-on-linux">Running on Linux</h2>
+
+<p>Build the applications using the following CMake script:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="c1"># Make sure to provide correct path to 'platform_linux.cpp'! See earlier tutorials for more info.</span>
+<span class="nb">add_executable</span><span class="p">(</span>server server.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>server <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>client client.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>client <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>client_cpp03 client_cpp03.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>client_cpp03 <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>

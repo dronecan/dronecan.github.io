@@ -1,0 +1,305 @@
+<h1 id="basic-usage">Basic usage</h1>
+
+<p>This tutorial will walk you through the basic usage of Pyuavcan.
+It is intended for execution in an interactive shell of Python 3.4 or newer.
+While Pyuavcan supports Python 2.7, its use is strongly discouraged.</p>
+
+<p>It is recommended to keep a running instance of the <a href="/GUI_Tool">UAVCAN GUI Tool</a> on the same bus
+while trying the examples below.
+If you’re working on Linux, consider using a virtual CAN interface for experimenting.</p>
+
+<p>This guide is not an extensive list of all capabilities of the library.
+For that, use the Python’s help system (function <code class="highlighter-rouge">help()</code>), or read the code.</p>
+
+<h2 id="node-initialization">Node initialization</h2>
+
+<p>Start a Python 3 shell and run this:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">uavcan</span>
+<span class="n">node</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">make_node</span><span class="p">(</span><span class="s">'/dev/ttyACM0'</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<p>This will create a node connected to the SLCAN interface <code class="highlighter-rouge">/dev/ttyACM0</code>,
+where all options are initialized to default values.
+The library will select the correct backend automatically by looking at the name of the interface.
+That is, if the interface is named like <code class="highlighter-rouge">COM3</code> or like above, the library will choose the SLCAN backend;
+if the interface is named in the form of <code class="highlighter-rouge">can0</code>, the library will select SocketCAN.</p>
+
+<p>A more useful node instantiation example is shown below:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">uavcan</span>
+
+<span class="c"># Instantiating an instance of standard service type uavcan.protocol.GetNodeInfo</span>
+<span class="c"># Here we need the response data structure, which is why we use the factory Response()</span>
+<span class="n">node_info</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">GetNodeInfo</span><span class="o">.</span><span class="n">Response</span><span class="p">()</span>
+<span class="n">node_info</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s">'org.uavcan.pyuavcan_demo'</span>
+<span class="n">node_info</span><span class="o">.</span><span class="n">software_version</span><span class="o">.</span><span class="n">major</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">node_info</span><span class="o">.</span><span class="n">hardware_version</span><span class="o">.</span><span class="n">unique_id</span> <span class="o">=</span> <span class="n">b</span><span class="s">'12345'</span> <span class="c"># Setting first 5 bytes; rest will be kept zero</span>
+<span class="c"># Fill other fields as necessary...</span>
+
+<span class="n">node</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">make_node</span><span class="p">(</span><span class="s">'vcan0'</span><span class="p">,</span>
+                        <span class="n">node_id</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span>          <span class="c"># Setting the node ID 123</span>
+                        <span class="n">node_info</span><span class="o">=</span><span class="n">node_info</span><span class="p">)</span>  <span class="c"># Setting node info</span>
+
+<span class="c"># Alternatively, node ID can be set after initialization,</span>
+<span class="c"># but only if it hasn't been set before:</span>
+<span class="n">node</span><span class="o">.</span><span class="n">node_id</span> <span class="o">=</span> <span class="mi">123</span>
+</code></pre>
+</div>
+
+<p>While the node is running, it is possible to change its mode, health, and vendor specific status code
+as follows:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="n">node</span><span class="o">.</span><span class="n">mode</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">NodeStatus</span><span class="p">()</span><span class="o">.</span><span class="n">MODE_OPERATIONAL</span>
+<span class="n">node</span><span class="o">.</span><span class="n">health</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">NodeStatus</span><span class="p">()</span><span class="o">.</span><span class="n">HEALTH_WARNING</span>
+<span class="n">node</span><span class="o">.</span><span class="n">vendor_specific_status_code</span> <span class="o">=</span> <span class="mi">12345</span>
+</code></pre>
+</div>
+
+<p>The library expects that it nearly always has a thread of execution blocked inside the
+<code class="highlighter-rouge">spin()</code> method of the node class.
+It is allowed to deviate from this requirement if the application does not have strict
+real-time requirements by temporarily dispatching control to other tasks,
+or by invoking the spin method periodically (at least 100 times per second) in a non-blocking way
+with zero timeout.
+Thus, the application should always keep one thread in the node’s <code class="highlighter-rouge">spin()</code> function.</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">spin</span><span class="p">()</span>             <span class="c"># Spin forever or until an exception is thrown</span>
+    <span class="k">except</span> <span class="n">UAVCANException</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'Node error:'</span><span class="p">,</span> <span class="n">ex</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<p>Another popular use case:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">spin</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>            <span class="c"># Spin for 1 second or until an exception is thrown</span>
+        <span class="n">perform_other_tasks</span><span class="p">()</span>
+        <span class="c"># time.sleep(0.1)       # Never do this!</span>
+    <span class="k">except</span> <span class="n">UAVCANException</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'Node error:'</span><span class="p">,</span> <span class="n">ex</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<p>In general, if the application needs to perform other blocking tasks,
+a separate thread should be spawned.
+In the next section we’ll learn how to run non-blocking parallel tasks from the node thread
+by using the callback scheduler embedded in the node.</p>
+
+<p>When you’re finished with the node, don’t forget to call <code class="highlighter-rouge">close()</code> on it; better yet, use contextlib:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">closing</span>
+<span class="k">with</span> <span class="n">closing</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">make_node</span><span class="p">(</span><span class="s">'/dev/ttyACM0'</span><span class="p">,</span> <span class="n">bitrate</span><span class="o">=</span><span class="mi">1000000</span><span class="p">))</span> <span class="k">as</span> <span class="n">node</span><span class="p">:</span>
+    <span class="c"># Do some work here...</span>
+<span class="c"># When control reaches the end of the with block, the node will be properly finalized</span>
+</code></pre>
+</div>
+
+<h2 id="invoking-callbacks-from-the-node-thread">Invoking callbacks from the node thread</h2>
+
+<p><a class="imagelink" href="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_node_info.png" data-lightbox="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_node_info.png" data-title="Test node as seen from GUI Tool">
+<img src="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_node_info.png" class="thumbnail" style="" />
+</a></p>
+
+<p>In order to keep the node running in the background while having the shell available for
+input, let’s spawn a thread and dispatch it into the <code class="highlighter-rouge">spin()</code> method.
+This approach works fine for experimenting, however,
+it must never be used in production because the library is not thread safe.</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">threading</span>
+<span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">node</span><span class="o">.</span><span class="n">spin</span><span class="p">,</span> <span class="n">daemon</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+</code></pre>
+</div>
+
+<p>It is recommended to launch the UAVCAN GUI tool now to make sure that the node can be seen online.</p>
+
+<p>Now we’ll see how to invoke callbacks once or periodically from the node thread:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="k">def</span> <span class="nf">periodic_callback_1hz</span><span class="p">():</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'Periodic'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">deferred_call</span><span class="p">():</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'Deferred call'</span><span class="p">)</span>
+
+<span class="c"># Invoking a function every second.</span>
+<span class="n">periodic_handle</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">periodic</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">periodic_callback_1hz</span><span class="p">)</span>
+
+<span class="c"># Invoking a function once after a 0.5 second delay expires.</span>
+<span class="n">deferred_handle</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">defer</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">deferred_call</span><span class="p">)</span>
+
+<span class="c"># When we no longer want a callback to fire, the associated task can be removed.</span>
+<span class="n">periodic_handle</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+
+<span class="c"># Deferred calls get removed automatically once they were invoked.</span>
+<span class="c"># Removing a deferred call before its invocation can be used to cancel</span>
+<span class="c"># pending deferred calls if they are no longer needed.</span>
+<span class="n">deferred_handle</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+</code></pre>
+</div>
+
+<p>Note that all exceptions thrown from all kinds of callbacks from the node
+are propagated through and thrown from the <code class="highlighter-rouge">spin()</code> method.
+Make sure to catch them.</p>
+
+<h2 id="loading-dsdl-definitions">Loading DSDL definitions</h2>
+
+<p>The library automatically loads definitions of all standard DSDL definitions
+(from the namespace <code class="highlighter-rouge">uavcan.*</code>) immediately once the module is imported.
+Additional definitions, such as vendor-specific definitions,
+can be added later by invoking <code class="highlighter-rouge">uavcan.load_dsdl()</code> with a list of lookup paths provided in the first argument.
+Refer to the function documentation for more info.</p>
+
+<p>Standard definitions can be reached directly from the module namespace, e.g.
+<code class="highlighter-rouge">uavcan.protocol.NodeStatus</code>.
+Vendor-specific definitions can be accessed via the pseudo-module <code class="highlighter-rouge">uavcan.thirdparty</code>.
+Both standard and vendor-specific types are also accessible via the global dictionaries
+<code class="highlighter-rouge">uavcan.DATATYPES</code> and <code class="highlighter-rouge">uavcan.TYPENAMES</code>.</p>
+
+<p>When instantiating a message type, its type name should be treated as a class name,
+e.g. <code class="highlighter-rouge">msg = uavcan.protocol.NodeStatus()</code>.
+When instantiating a service request or response structure,
+its type name need to be appended with either <code class="highlighter-rouge">Request()</code> or <code class="highlighter-rouge">Response()</code>
+specifier, e.g. <code class="highlighter-rouge">uavcan.protocol.GetNodeInfo.Request()</code>, <code class="highlighter-rouge">uavcan.protocol.GetNodeInfo.Response()</code>.
+Direct instantiation of services is not defined by the specification,
+and will lead to a runtime error.</p>
+
+<h2 id="receiving-messages-from-the-bus">Receiving messages from the bus</h2>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="k">def</span> <span class="nf">node_status_callback</span><span class="p">(</span><span class="n">event</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'NodeStatus message from node'</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">transfer</span><span class="o">.</span><span class="n">source_node_id</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'Node uptime:'</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">uptime_sec</span><span class="p">,</span> <span class="s">'seconds'</span><span class="p">)</span>
+    <span class="c"># Messages, service requests, service responses, and entire events</span>
+    <span class="c"># can be converted into YAML formatted data structure using to_yaml():</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">(</span><span class="n">event</span><span class="p">))</span>
+
+<span class="c"># Subscribing to messages uavcan.protocol.NodeStatus</span>
+<span class="n">handle</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">NodeStatus</span><span class="p">,</span> <span class="n">node_status_callback</span><span class="p">)</span>
+
+<span class="c"># When we no longer need them, we can remove the handler</span>
+<span class="n">handle</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
+</code></pre>
+</div>
+
+<h3 id="timestamping">Timestamping</h3>
+
+<p>It should be noted that Pyuavcan goes at great lengths to obtain precise timestamps
+of the received CAN frames, and, by extension, UAVCAN transfers (both messages and services).
+The exact method of timestamp estimation depends on the backend,
+so the most valid information can be obtained by looking at the source code of the backend of interest.</p>
+
+<p>For SLCAN, if the CAN adapter provides timestamps,
+the library will convert them from the adapter’s clock domain
+into the monotonic and real time domains of the local computer using the Olson
+passive time synchronization algorithm.
+If timestamps are not provided by the adapter,
+the library will use naive timestamping, which is imprecise.</p>
+
+<p>For SocketCAN, the library retrieves the timestamping information
+from the Linux kernel. Refer to the code for more information.</p>
+
+<p>The computed precise timestamps will be stored in the fields
+<code class="highlighter-rouge">event.transfer.ts_monotonic</code> and <code class="highlighter-rouge">event.transfer.ts_real</code> for time in
+the local monotonic (see <code class="highlighter-rouge">time.monotonic()</code>) and real (see <code class="highlighter-rouge">time.time()</code>) domains, respectively.</p>
+
+<h2 id="publishing-messages-to-the-bus">Publishing messages to the bus</h2>
+
+<p>Pyuavcan supports different of ways to assign values to fields of DSDL data structures.
+Using the type constructors:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">uavcan.protocol.debug.KeyValue(key='this is key', value=123.456)</code></li>
+  <li><code class="highlighter-rouge">uavcan.protocol.param.GetSet.Request(name='foobar')</code></li>
+  <li><code class="highlighter-rouge">uavcan.protocol.param.GetSet.Response(value=uavcan.protocol.param.Value(integer_value=123))</code></li>
+</ul>
+
+<p><a class="imagelink" href="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_bus_monitor_publishing.png" data-lightbox="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_bus_monitor_publishing.png" data-title="Broadcasts as seen from GUI Tool">
+<img src="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_bus_monitor_publishing.png" class="thumbnail" style="" />
+</a></p>
+
+<p>Values that are not specified in the constructor are zero initialized by default.</p>
+
+<p>Using direct assignment:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="n">s</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">debug</span><span class="o">.</span><span class="n">KeyValue</span><span class="p">()</span>
+<span class="n">s</span><span class="o">.</span><span class="n">key</span> <span class="o">=</span> <span class="s">'this is key'</span>
+<span class="n">s</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="mf">123.456</span>
+</code></pre>
+</div>
+
+<p>Messages can be broadcast using the method <code class="highlighter-rouge">broadcast()</code>:</p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="k">def</span> <span class="nf">do_publish</span><span class="p">():</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">debug</span><span class="o">.</span><span class="n">KeyValue</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="s">'this is key'</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mf">123.456</span><span class="p">)</span>
+    <span class="c"># The priority argument can be omitted, in which case default will be used</span>
+    <span class="n">node</span><span class="o">.</span><span class="n">broadcast</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">priority</span><span class="o">=</span><span class="n">uavcan</span><span class="o">.</span><span class="n">TRANSFER_PRIORITY_LOWEST</span><span class="p">)</span>
+
+<span class="n">handle</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">periodic</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">do_publish</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<h2 id="invoking-services">Invoking services</h2>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="c"># The callback will be invoked ALWAYS, even if the request has timed out.</span>
+<span class="c"># In the case of a timeout, the argument will be None.</span>
+<span class="k">def</span> <span class="nf">response_callback</span><span class="p">(</span><span class="n">event</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">event</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'Service response from server'</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">transfer</span><span class="o">.</span><span class="n">source_node_id</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">response</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'SERVICE REQUEST HAS TIMED OUT'</span><span class="p">)</span>
+
+<span class="c"># The priority argument can be omitted, in which case default will be used</span>
+<span class="n">node</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">GetNodeInfo</span><span class="o">.</span><span class="n">Request</span><span class="p">(),</span> <span class="mi">127</span><span class="p">,</span> <span class="n">response_callback</span><span class="p">,</span>
+             <span class="n">priority</span><span class="o">=</span><span class="n">uavcan</span><span class="o">.</span><span class="n">TRANSFER_PRIORITY_LOWEST</span><span class="p">)</span>
+<span class="n">node</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">GetNodeInfo</span><span class="o">.</span><span class="n">Request</span><span class="p">(),</span> <span class="mi">126</span><span class="p">,</span> <span class="n">response_callback</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<h2 id="responding-to-services">Responding to services</h2>
+
+<p><a class="imagelink" href="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_restart.png" data-lightbox="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_restart.png" data-title="Sending restart requests from GUI Tool">
+<img src="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_restart.png" class="thumbnail" style="" />
+</a></p>
+
+<div class="language-python highlighter-rouge"><pre class="highlight"><code><span class="k">def</span> <span class="nf">handle_node_restart_request</span><span class="p">(</span><span class="n">event</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'Request from client'</span><span class="p">,</span> <span class="n">event</span><span class="o">.</span><span class="n">transfer</span><span class="o">.</span><span class="n">source_node_id</span><span class="p">)</span>
+    <span class="c"># Rejecting the request if the magic number is incorrect</span>
+    <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">magic_number</span> <span class="o">!=</span> <span class="n">event</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">MAGIC_NUMBER</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">RestartNode</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="n">ok</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'Restart request accepted'</span><span class="p">)</span>
+    <span class="c"># Ha ha, just kidding; actual reboot in a demo application is hardly a good idea</span>
+    <span class="kn">import</span> <span class="nn">os</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'Reboot result:'</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">system</span><span class="p">(</span><span class="s">'reboot'</span><span class="p">))</span>
+    <span class="c"># Returning confirmation</span>
+    <span class="k">return</span> <span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">RestartNode</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="n">ok</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+<span class="n">node</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="n">uavcan</span><span class="o">.</span><span class="n">protocol</span><span class="o">.</span><span class="n">RestartNode</span><span class="p">,</span> <span class="n">handle_node_restart_request</span><span class="p">)</span>
+</code></pre>
+</div>
+
+<h2 id="using-vendor-specific-dsdl-definitions">Using Vendor-Specific DSDL Definitions</h2>
+
+<p>Pyuavcan will automatically scan the directory <code class="highlighter-rouge">~/uavcan_vendor_specific_types</code> for vendor-specific data types,
+where <code class="highlighter-rouge">~</code> stands for the home directory of the current user, e.g. <code class="highlighter-rouge">/home/joe</code> or <code class="highlighter-rouge">C:\Users\Joe</code>.
+Consider the following directory layout:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>~
+└── uavcan_vendor_specific_types
+    └── sirius_cybernetics_corporation
+        ├── 100.Foo.uavcan
+        ├── 42.Bar.uavcan
+        └── Baz.uavcan
+</code></pre>
+</div>
+
+<p>The above layout defines the following custom data types:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">sirius_cybernetics_corporation.Foo</code> with the default data type ID 100.</li>
+  <li><code class="highlighter-rouge">sirius_cybernetics_corporation.Bar</code> with the default data type ID 42.</li>
+  <li><code class="highlighter-rouge">sirius_cybernetics_corporation.Baz</code> where the default data type ID is not set.</li>
+</ul>

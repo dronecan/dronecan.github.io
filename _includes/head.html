@@ -1,27 +1,26 @@
+{% assign CLEAN_PAGE_URL = page.url | remove: '/index.html' | remove: '.html' | replace: '_', ' ' %}
+
+{% if page.url == '/index.html' %}
+    {% assign PAGE_TITLE = "" %}
+{% else %}
+    {% assign PAGE_TITLE = CLEAN_PAGE_URL | split: '/' | last %}
+{% endif %}
+
 <head>
-  <meta charset='utf-8'>
-    <meta http-equiv="X-UA-Compatible" content="chrome=1">
-    <link href='https://fonts.googleapis.com/css?family=Chivo:900' rel='stylesheet' type='text/css'>
-    <link rel="stylesheet" href="site.css">
-    <link rel="stylesheet" type="text/css" href="/assets/css/print.css" media="print">
-  <title>
-    {% if page.title %} {{ page.title }}
-    {% else %} {{ site.title }}
-    {% endif %}
-  </title>
-  <meta name="description" content="{{ site.description }}">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="author" content="DroneCAN">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="theme-color" content="#1700b3">
 
-  <!-- OG Meta Tags to improve the way the post looks when you share the page on LinkedIn, Facebook, Google+ -->
-  <meta property="og:site_name" content="DroneCAN.org" />
-  <meta property="og:site" content="DroneCAN.org" />
-  <meta property="og:title" content="DroneCAN">
-  <meta property="og:description" content="{{ site.description }}" /> <!-- description shown in the actual shared post -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://www.dronecan.org">
-  <meta property="og:image" content="">
+    <title>{% if PAGE_TITLE %}{{ PAGE_TITLE }} - {% endif %}{{ site.title }}</title>
+    <meta name="description" content="{{ site.description }}">
 
-  <link rel="canonical" href="https://www.dronecan.org"/>
+    <!--[if lte IE 8]><script src="/assets/js/ie/html5shiv.js"></script><![endif]-->
+    <link rel="stylesheet" href="/assets/css/main.css" />
+    <link rel="stylesheet" href="/assets/css/lightbox.css" />
+    <!--[if lte IE 8]><link rel="stylesheet" href="/assets/css/ie8.css" /><![endif]-->
+    <!--[if lte IE 9]><link rel="stylesheet" href="/assets/css/ie9.css" /><![endif]-->
+    <noscript><link rel="stylesheet" href="/assets/css/noscript.css" /></noscript>
 
+    <link rel="canonical" href="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}">
 </head>

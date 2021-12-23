@@ -1,0 +1,945 @@
+<h1 id="multithreading">Multithreading</h1>
+
+<p>This advanced-level tutorial explains the concept of multithreaded node in the context of libuavcan,
+and shows an example application that runs a multithreaded node.</p>
+
+<p>The reader must be familiar with the specification, particularly with the specification of the transport layer.</p>
+
+<h2 id="motivation">Motivation</h2>
+
+<p>An application that runs a UAVCAN node is often required to run hard real-time UAVCAN-related processes
+side by side with less time-critical ones.
+Making both co-exist in the same execution thread can be challenging because of radically different requirements
+and constraints.
+For example, part of the application that controls actuators over UAVCAN may require very low latency,
+whereas a non-realtime component (e.g. a firmware update trigger) does not require real-time priority,
+but in turn may have to perform long blocking I/O operations, such as file system access, etc.</p>
+
+<p>A radical solution to this problem is to run the node in two (or more) execution threads or processes.
+This enables the designer to put hard real-time tasks in a dedicated thread, while running all low-priority and/or
+blocking processes in lower-priority threads.</p>
+
+<h2 id="architecture">Architecture</h2>
+
+<p><a class="imagelink" href="/Implementations/Libuavcan/Tutorials/12._Multithreading/multithreading.svg" data-lightbox="/Implementations/Libuavcan/Tutorials/12._Multithreading/multithreading.svg" data-title="Multithreading with Libuavcan">
+<img src="/Implementations/Libuavcan/Tutorials/12._Multithreading/multithreading.svg" class="thumbnail" style="" />
+</a></p>
+
+<p>Libuavcan allows to add low-priority threads by means of adding <em>sub-nodes</em>,
+decoupled from the <em>main node</em> via a <em>virtual CAN driver</em>.
+In this tutorial we’ll be reviewing a use case with just one sub-node,
+but the approach can be scaled to more sub-nodes if necessary by means of daisy-chaining them together
+with extra virtual drivers.</p>
+
+<p>A virtual CAN driver is a class that implements <code class="highlighter-rouge">uavcan::ICanDriver</code> (see libuavcan porting guide for details).
+An object of this class is fed to the sub-node in place of a real CAN driver.</p>
+
+<h3 id="transmission">Transmission</h3>
+
+<p>The sub-node emits its outgoing (TX) CAN frames into the virtual driver,
+where they get enqueued in a synchronized prioritized queue.
+The main node periodically unloads the enqueued TX frames from the virtual driver into its own
+prioritized TX queue, which then gets flushed into the CAN driver, thus completing the pipeline.</p>
+
+<p>Injection of TX frames from sub-node to the main node’s queue is done via <code class="highlighter-rouge">uavcan::INode::injectTxFrame(..)</code>.</p>
+
+<h3 id="reception">Reception</h3>
+
+<p>The main node simply duplicates all incoming (RX) CAN frames to the virtual CAN driver.
+This is done via the interface <code class="highlighter-rouge">uavcan::IRxFrameListener</code>,
+which is installed via the method <code class="highlighter-rouge">uavcan::INode::installRxFrameListener(uavcan::IRxFrameListener*)</code>.</p>
+
+<h2 id="multiprocessing">Multiprocessing</h2>
+
+<p><a class="imagelink" href="/Implementations/Libuavcan/Tutorials/12._Multithreading/multiprocessing.svg" data-lightbox="/Implementations/Libuavcan/Tutorials/12._Multithreading/multiprocessing.svg" data-title="Multiprocessing with Libuavcan">
+<img src="/Implementations/Libuavcan/Tutorials/12._Multithreading/multiprocessing.svg" class="thumbnail" style="" />
+</a></p>
+
+<p>A node may be implemented not only in multiple threads, but in multiple processes as well
+(with isolated address spaces).</p>
+
+<p>In this case, every sub-node will be accessing the CAN hardware as an independent node,
+but it will be using the same node ID in all communications, therefore all sub-nodes and the main node
+will appear on the bus as the same network participant.</p>
+
+<p>We introduce a new term here - <em>compound node</em> - which refers to either a multithreaded or a multiprocessed node.</p>
+
+<h2 id="limitations">Limitations</h2>
+
+<p>A curious reader could have noticed that the above proposed approaches are in conflict
+with requirements of the transport layer specification.
+Indeed, there is one corner case that has to be kept in mind when working with compound nodes.</p>
+
+<p>The transport layer specification introduces the concept of <em>transfer ID map</em>,
+which is mandatory in order to assign proper transfer ID values to outgoing transfers.
+The main node and its sub-nodes cannot use a shared transfer ID map, therefore
+<em>multiple sub-nodes must not simultaneously publish transfers with identical descriptors</em>.</p>
+
+<p>This point can be expressed in higher-level terms:</p>
+
+<ul>
+  <li>Every sub-node of a compound node may receive any incoming transfers without limitations.</li>
+  <li>Only one sub-node can implement a certain publisher or service server.</li>
+</ul>
+
+<p>Note that the class <code class="highlighter-rouge">uavcan::SubNode</code> does not publish <code class="highlighter-rouge">uavcan.protocol.NodeStatus</code> and
+does not provide service <code class="highlighter-rouge">uavcan.protocol.GetNodeInfo</code> and such (actually it doesn’t implement any
+publishers or servers or such at all), because this functionality is already provided by the main node class.</p>
+
+<h2 id="example">Example</h2>
+
+<h3 id="virtual-can-driver">Virtual CAN driver</h3>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cm">/**
+ * This header implements a virtual CAN driver for multi-threaded libuavcan nodes.
+ * It is supposed to be connected to the secondary node (aka sub-node) in place of a real CAN driver.
+ * Once connected, the virtual driver will be redirecting outgoing CAN frames to the main node, and
+ * it will be copying RX frames received by the main node to the secondary node (i.e. every RX frame will
+ * go into the main node AND the secondary node).
+ *
+ * @file uavcan_virtual_driver.hpp
+ * @author Pavel Kirienko &lt;pavel.kirienko@zubax.com&gt;
+ *
+ * The source code contained in this file is distributed under the terms of CC0 (public domain dedication).
+ */</span>
+
+<span class="cp">#pragma once
+</span>
+<span class="cp">#include &lt;iostream&gt;             // For std::cout
+#include &lt;thread&gt;               // For std::mutex
+#include &lt;condition_variable&gt;   // For std::condition_variable
+#include &lt;uavcan/uavcan.hpp&gt;    // Main libuavcan header
+</span>
+<span class="k">namespace</span> <span class="n">uavcan_virtual_driver</span>
+<span class="p">{</span>
+<span class="cm">/**
+ * Generic queue based on the linked list class defined in libuavcan.
+ * It does not use heap memory, but uses the libuavcan's deterministic pool allocator.
+ *
+ * This class is used to implement synchronized RX queue of the secondary thread.
+ */</span>
+<span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="k">class</span> <span class="nc">Queue</span>
+<span class="p">{</span>
+    <span class="k">struct</span> <span class="n">Item</span> <span class="o">:</span> <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">LinkedListNode</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+    <span class="p">{</span>
+        <span class="n">T</span> <span class="n">payload</span><span class="p">;</span>
+
+        <span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span><span class="p">...</span> <span class="n">Args</span><span class="o">&gt;</span>
+        <span class="n">Item</span><span class="p">(</span><span class="n">Args</span><span class="p">...</span> <span class="n">args</span><span class="p">)</span> <span class="o">:</span> <span class="n">payload</span><span class="p">(</span><span class="n">args</span><span class="p">...)</span> <span class="p">{</span> <span class="p">}</span>
+    <span class="p">};</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">LimitedPoolAllocator</span> <span class="n">allocator_</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">LinkedListRoot</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span> <span class="n">list_</span><span class="p">;</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="cm">/**
+     * @param arg_allocator             Used to allocate memory for stored items.
+     *
+     * @param block_allocation_quota    Maximum number of memory blocks this queue can take from the allocator.
+     *                                  Defines the depth of the queue.
+     */</span>
+    <span class="n">Queue</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">IPoolAllocator</span><span class="o">&amp;</span> <span class="n">arg_allocator</span><span class="p">,</span>
+          <span class="n">std</span><span class="o">::</span><span class="kt">size_t</span> <span class="n">block_allocation_quota</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">allocator_</span><span class="p">(</span><span class="n">arg_allocator</span><span class="p">,</span> <span class="n">block_allocation_quota</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">IsDynamicallyAllocatable</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;::</span><span class="n">check</span><span class="p">();</span>
+    <span class="p">}</span>
+
+    <span class="kt">bool</span> <span class="n">isEmpty</span><span class="p">()</span> <span class="k">const</span> <span class="p">{</span> <span class="k">return</span> <span class="n">list_</span><span class="p">.</span><span class="n">isEmpty</span><span class="p">();</span> <span class="p">}</span>
+
+    <span class="cm">/**
+     * Creates one item in-place at the end of the list.
+     * Returns true if the item has been appended successfully, false if there's not enough memory.
+     * Complexity is O(N) where N is queue length.
+     */</span>
+    <span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span><span class="p">...</span> <span class="n">Args</span><span class="o">&gt;</span>
+    <span class="kt">bool</span> <span class="n">tryEmplace</span><span class="p">(</span><span class="n">Args</span><span class="p">...</span> <span class="n">args</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="c1">// Allocating memory
+</span>        <span class="kt">void</span><span class="o">*</span> <span class="k">const</span> <span class="n">ptr</span> <span class="o">=</span> <span class="n">allocator_</span><span class="p">.</span><span class="n">allocate</span><span class="p">(</span><span class="k">sizeof</span><span class="p">(</span><span class="n">Item</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ptr</span> <span class="o">==</span> <span class="nb">nullptr</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">return</span> <span class="nb">false</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="c1">// Constructing the new item
+</span>        <span class="n">Item</span><span class="o">*</span> <span class="k">const</span> <span class="n">item</span> <span class="o">=</span> <span class="k">new</span> <span class="p">(</span><span class="n">ptr</span><span class="p">)</span> <span class="n">Item</span><span class="p">(</span><span class="n">args</span><span class="p">...);</span>
+        <span class="n">assert</span><span class="p">(</span><span class="n">item</span> <span class="o">!=</span> <span class="nb">nullptr</span><span class="p">);</span>
+
+        <span class="c1">// Inserting the new item at the end of the list
+</span>        <span class="n">Item</span><span class="o">*</span> <span class="n">p</span> <span class="o">=</span> <span class="n">list_</span><span class="p">.</span><span class="n">get</span><span class="p">();</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">p</span> <span class="o">==</span> <span class="nb">nullptr</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">list_</span><span class="p">.</span><span class="n">insert</span><span class="p">(</span><span class="n">item</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="k">while</span> <span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">getNextListNode</span><span class="p">()</span> <span class="o">!=</span> <span class="nb">nullptr</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">getNextListNode</span><span class="p">();</span>
+            <span class="p">}</span>
+            <span class="n">assert</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">getNextListNode</span><span class="p">()</span> <span class="o">==</span> <span class="nb">nullptr</span><span class="p">);</span>
+            <span class="n">p</span><span class="o">-&gt;</span><span class="n">setNextListNode</span><span class="p">(</span><span class="n">item</span><span class="p">);</span>
+            <span class="n">assert</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">getNextListNode</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">getNextListNode</span><span class="p">()</span> <span class="o">==</span> <span class="nb">nullptr</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="nb">true</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Accesses the first element.
+     * Nullptr will be returned if the queue is empty.
+     * Complexity is O(1).
+     */</span>
+    <span class="n">T</span><span class="o">*</span>       <span class="n">peek</span><span class="p">()</span>       <span class="p">{</span> <span class="k">return</span> <span class="n">isEmpty</span><span class="p">()</span> <span class="o">?</span> <span class="nb">nullptr</span> <span class="o">:</span> <span class="o">&amp;</span><span class="n">list_</span><span class="p">.</span><span class="n">get</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">payload</span><span class="p">;</span> <span class="p">}</span>
+    <span class="k">const</span> <span class="n">T</span><span class="o">*</span> <span class="n">peek</span><span class="p">()</span> <span class="k">const</span> <span class="p">{</span> <span class="k">return</span> <span class="n">isEmpty</span><span class="p">()</span> <span class="o">?</span> <span class="nb">nullptr</span> <span class="o">:</span> <span class="o">&amp;</span><span class="n">list_</span><span class="p">.</span><span class="n">get</span><span class="p">()</span><span class="o">-&gt;</span><span class="n">payload</span><span class="p">;</span> <span class="p">}</span>
+
+    <span class="cm">/**
+     * Removes the first element.
+     * If the queue is empty, nothing will be done and assertion failure will be triggered.
+     * Complexity is O(1).
+     */</span>
+    <span class="kt">void</span> <span class="n">pop</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="n">Item</span><span class="o">*</span> <span class="k">const</span> <span class="n">item</span> <span class="o">=</span> <span class="n">list_</span><span class="p">.</span><span class="n">get</span><span class="p">();</span>
+        <span class="n">assert</span><span class="p">(</span><span class="n">item</span> <span class="o">!=</span> <span class="nb">nullptr</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">item</span> <span class="o">!=</span> <span class="nb">nullptr</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">list_</span><span class="p">.</span><span class="n">remove</span><span class="p">(</span><span class="n">item</span><span class="p">);</span>
+            <span class="n">item</span><span class="o">-&gt;~</span><span class="n">Item</span><span class="p">();</span>
+            <span class="n">allocator_</span><span class="p">.</span><span class="n">deallocate</span><span class="p">(</span><span class="n">item</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="cm">/**
+ * This class implements one virtual interface.
+ *
+ * Objects of this class are owned by the secondary thread.
+ * This class does not use heap memory, instead it uses a block allocator provided by reference to the constructor.
+ */</span>
+<span class="k">class</span> <span class="nc">Iface</span> <span class="n">final</span> <span class="o">:</span> <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanIface</span><span class="p">,</span>
+                    <span class="n">uavcan</span><span class="o">::</span><span class="n">Noncopyable</span>
+<span class="p">{</span>
+    <span class="k">struct</span> <span class="n">RxItem</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanRxFrame</span> <span class="n">frame</span><span class="p">;</span>
+        <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOFlags</span> <span class="n">flags</span><span class="p">;</span>
+
+        <span class="n">RxItem</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanRxFrame</span><span class="o">&amp;</span> <span class="n">arg_frame</span><span class="p">,</span>
+               <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOFlags</span> <span class="n">arg_flags</span><span class="p">)</span> <span class="o">:</span>
+            <span class="n">frame</span><span class="p">(</span><span class="n">arg_frame</span><span class="p">),</span>
+            <span class="n">flags</span><span class="p">(</span><span class="n">arg_flags</span><span class="p">)</span>
+        <span class="p">{</span> <span class="p">}</span>
+    <span class="p">};</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&amp;</span> <span class="n">mutex_</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">CanTxQueue</span> <span class="n">prioritized_tx_queue_</span><span class="p">;</span>
+    <span class="n">Queue</span><span class="o">&lt;</span><span class="n">RxItem</span><span class="o">&gt;</span> <span class="n">rx_queue_</span><span class="p">;</span>
+
+    <span class="cm">/**
+     * Implements uavcan::ICanDriver. Will be invoked by the sub-node.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">int16_t</span> <span class="n">send</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanFrame</span><span class="o">&amp;</span> <span class="n">frame</span><span class="p">,</span>
+                      <span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicTime</span> <span class="n">tx_deadline</span><span class="p">,</span>
+                      <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOFlags</span> <span class="n">flags</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+        <span class="n">prioritized_tx_queue_</span><span class="p">.</span><span class="n">push</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">tx_deadline</span><span class="p">,</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanTxQueue</span><span class="o">::</span><span class="n">Volatile</span><span class="p">,</span> <span class="n">flags</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Implements uavcan::ICanDriver. Will be invoked by the sub-node.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">int16_t</span> <span class="n">receive</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">CanFrame</span><span class="o">&amp;</span> <span class="n">out_frame</span><span class="p">,</span>
+                         <span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicTime</span><span class="o">&amp;</span> <span class="n">out_ts_monotonic</span><span class="p">,</span>
+                         <span class="n">uavcan</span><span class="o">::</span><span class="n">UtcTime</span><span class="o">&amp;</span> <span class="n">out_ts_utc</span><span class="p">,</span>
+                         <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOFlags</span><span class="o">&amp;</span> <span class="n">out_flags</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">rx_queue_</span><span class="p">.</span><span class="n">isEmpty</span><span class="p">())</span>
+        <span class="p">{</span>
+            <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="k">const</span> <span class="k">auto</span> <span class="n">item</span> <span class="o">=</span> <span class="o">*</span><span class="n">rx_queue_</span><span class="p">.</span><span class="n">peek</span><span class="p">();</span>
+        <span class="n">rx_queue_</span><span class="p">.</span><span class="n">pop</span><span class="p">();</span>
+
+        <span class="n">out_frame</span> <span class="o">=</span> <span class="n">item</span><span class="p">.</span><span class="n">frame</span><span class="p">;</span>
+        <span class="n">out_ts_monotonic</span> <span class="o">=</span> <span class="n">item</span><span class="p">.</span><span class="n">frame</span><span class="p">.</span><span class="n">ts_mono</span><span class="p">;</span>
+        <span class="n">out_ts_utc</span> <span class="o">=</span> <span class="n">item</span><span class="p">.</span><span class="n">frame</span><span class="p">.</span><span class="n">ts_utc</span><span class="p">;</span>
+        <span class="n">out_flags</span> <span class="o">=</span> <span class="n">item</span><span class="p">.</span><span class="n">flags</span><span class="p">;</span>
+
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Stubs for uavcan::ICanDriver. Will be invoked by the sub-node.
+     * These methods are meaningless for a virtual interface.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">int16_t</span> <span class="n">configureFilters</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanFilterConfig</span><span class="o">*</span><span class="p">,</span> <span class="n">std</span><span class="o">::</span><span class="kt">uint16_t</span><span class="p">)</span> <span class="n">override</span> <span class="p">{</span> <span class="k">return</span> <span class="o">-</span><span class="n">uavcan</span><span class="o">::</span><span class="n">ErrDriver</span><span class="p">;</span> <span class="p">}</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">uint16_t</span> <span class="n">getNumFilters</span><span class="p">()</span> <span class="k">const</span> <span class="n">override</span> <span class="p">{</span> <span class="k">return</span> <span class="mi">0</span><span class="p">;</span> <span class="p">}</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">uint64_t</span> <span class="n">getErrorCount</span><span class="p">()</span> <span class="k">const</span> <span class="n">override</span> <span class="p">{</span> <span class="k">return</span> <span class="mi">0</span><span class="p">;</span> <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="cm">/**
+     * This class should be instantiated by the secondary thread.
+     *
+     * @param allocator         Needed to provide storage for the prioritized TX queue and the RX queue.
+     *
+     * @param clock             Needed for the TX queue so it can discard stale frames.
+     *
+     * @param arg_mutex         Needed because the main and the secondary threads communicate through this class,
+     *                          therefore it must be thread-safe.
+     *
+     * @param quota_per_queue   Defines how many frames the queues, both RX and TX, can accommodate.
+     */</span>
+    <span class="n">Iface</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">IPoolAllocator</span><span class="o">&amp;</span> <span class="n">allocator</span><span class="p">,</span>
+          <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">clock</span><span class="p">,</span>
+          <span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&amp;</span> <span class="n">arg_mutex</span><span class="p">,</span>
+          <span class="kt">unsigned</span> <span class="n">quota_per_queue</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">mutex_</span><span class="p">(</span><span class="n">arg_mutex</span><span class="p">),</span>
+        <span class="n">prioritized_tx_queue_</span><span class="p">(</span><span class="n">allocator</span><span class="p">,</span> <span class="n">clock</span><span class="p">,</span> <span class="n">quota_per_queue</span><span class="p">),</span>
+        <span class="n">rx_queue_</span><span class="p">(</span><span class="n">allocator</span><span class="p">,</span> <span class="n">quota_per_queue</span><span class="p">)</span>
+    <span class="p">{</span> <span class="p">}</span>
+
+    <span class="cm">/**
+     * This method adds one frame to the RX queue of the secondary thread.
+     * It is invoked by the main thread when the node receives a frame from the bus.
+     *
+     * Note that RX queue overwrites oldest items when overflowed.
+     * No additional locking is required - this method is thread-safe. Call from the main thread only.
+     *
+     * @param frame     The frame to be received by the sub-node.
+     *
+     * @param flags     Flags associated with the frame. See @ref uavcan::CanIOFlags for available flags.
+     */</span>
+    <span class="kt">void</span> <span class="n">addRxFrame</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanRxFrame</span><span class="o">&amp;</span> <span class="n">frame</span><span class="p">,</span>
+                    <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOFlags</span> <span class="n">flags</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">rx_queue_</span><span class="p">.</span><span class="n">tryEmplace</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="n">rx_queue_</span><span class="p">.</span><span class="n">isEmpty</span><span class="p">())</span>
+        <span class="p">{</span>
+            <span class="n">rx_queue_</span><span class="p">.</span><span class="n">pop</span><span class="p">();</span>
+            <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">rx_queue_</span><span class="p">.</span><span class="n">tryEmplace</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">flags</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * This method flushes frames from the sub-node's TX queue into the main node's TX queue.
+     *
+     * No additional locking is required - this method is thread-safe. Call from the main thread only.
+     *
+     * @param main_node         Reference to the main node, which will receive the frames.
+     *
+     * @param iface_index       Index of the interface in which the frames will be sent.
+     */</span>
+    <span class="kt">void</span> <span class="n">flushTxQueueTo</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">INode</span><span class="o">&amp;</span> <span class="n">main_node</span><span class="p">,</span>
+                        <span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">iface_index</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+
+        <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">iface_mask</span> <span class="o">=</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span><span class="o">&gt;</span><span class="p">(</span><span class="mi">1U</span> <span class="o">&lt;&lt;</span> <span class="n">iface_index</span><span class="p">);</span>
+
+        <span class="k">while</span> <span class="p">(</span><span class="k">auto</span> <span class="n">e</span> <span class="o">=</span> <span class="n">prioritized_tx_queue_</span><span class="p">.</span><span class="n">peek</span><span class="p">())</span>
+        <span class="p">{</span>
+<span class="cp">#if !NDEBUG &amp;&amp; UAVCAN_TOSTRING
+</span>            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"uavcan_virtual_driver::Iface: TX injection [iface_index="</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">iface_index</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="s">"]: "</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">e</span><span class="o">-&gt;</span><span class="n">toString</span><span class="p">()</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="cp">#endif
+</span>            <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">main_node</span><span class="p">.</span><span class="n">injectTxFrame</span><span class="p">(</span><span class="n">e</span><span class="o">-&gt;</span><span class="n">frame</span><span class="p">,</span> <span class="n">e</span><span class="o">-&gt;</span><span class="n">deadline</span><span class="p">,</span> <span class="n">iface_mask</span><span class="p">,</span>
+                                                    <span class="n">uavcan</span><span class="o">::</span><span class="n">CanTxQueue</span><span class="o">::</span><span class="n">Qos</span><span class="p">(</span><span class="n">e</span><span class="o">-&gt;</span><span class="n">qos</span><span class="p">),</span> <span class="n">e</span><span class="o">-&gt;</span><span class="n">flags</span><span class="p">);</span>
+            <span class="n">prioritized_tx_queue_</span><span class="p">.</span><span class="n">remove</span><span class="p">(</span><span class="n">e</span><span class="p">);</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="k">break</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * This method reports whether there's data for the sub-node to read from the RX thread.
+     *
+     * No additional locking is required - this method is thread-safe. Call from the secondary thread only.
+     */</span>
+    <span class="kt">bool</span> <span class="n">hasDataInRxQueue</span><span class="p">()</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+        <span class="k">return</span> <span class="o">!</span><span class="n">rx_queue_</span><span class="p">.</span><span class="n">isEmpty</span><span class="p">();</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="cm">/**
+ * This interface defines one method that will be called by the main node thread periodically in order to
+ * transfer contents of TX queue of the sub-node into the TX queue of the main node.
+ */</span>
+<span class="k">class</span> <span class="nc">ITxQueueInjector</span>
+<span class="p">{</span>
+<span class="k">public</span><span class="o">:</span>
+    <span class="k">virtual</span> <span class="o">~</span><span class="n">ITxQueueInjector</span><span class="p">()</span> <span class="p">{</span> <span class="p">}</span>
+
+    <span class="cm">/**
+     * Flush contents of TX queues into the main node's prioritized TX queue.
+     * @param main_node         Reference to the main node.
+     */</span>
+    <span class="k">virtual</span> <span class="kt">void</span> <span class="n">injectTxFramesInto</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">INode</span><span class="o">&amp;</span> <span class="n">main_node</span><span class="p">)</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="cm">/**
+ * This is the main, user-facing part of the virtual driver.
+ * This class will be instantiated by the application and passed into the sub-node as its CAN interface.
+ *
+ * Objects of this class are owned by the secondary thread.
+ * This class does not use heap memory, instead it uses a block allocator provided by reference to the constructor.
+ */</span>
+<span class="k">class</span> <span class="nc">Driver</span> <span class="n">final</span> <span class="o">:</span> <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="p">,</span>
+                     <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">IRxFrameListener</span><span class="p">,</span>
+                     <span class="k">public</span> <span class="n">ITxQueueInjector</span><span class="p">,</span>
+                     <span class="n">uavcan</span><span class="o">::</span><span class="n">Noncopyable</span>
+<span class="p">{</span>
+    <span class="cm">/**
+     * Basic synchronization object. Can be replaced with whatever is appropriate for the target platform.
+     */</span>
+    <span class="k">class</span> <span class="nc">Event</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">mutex</span> <span class="n">m_</span><span class="p">;</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">condition_variable</span> <span class="n">cv_</span><span class="p">;</span>
+
+    <span class="k">public</span><span class="o">:</span>
+        <span class="cm">/**
+         * Note that in this implementation this method may return spuriously, which is OK.
+         */</span>
+        <span class="kt">void</span> <span class="n">waitFor</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span> <span class="n">duration</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">unique_lock</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lk</span><span class="p">(</span><span class="n">m_</span><span class="p">);</span>
+            <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">cv_</span><span class="p">.</span><span class="n">wait_for</span><span class="p">(</span><span class="n">lk</span><span class="p">,</span> <span class="n">std</span><span class="o">::</span><span class="n">chrono</span><span class="o">::</span><span class="n">microseconds</span><span class="p">(</span><span class="n">duration</span><span class="p">.</span><span class="n">toUSec</span><span class="p">()));</span>
+        <span class="p">}</span>
+
+        <span class="kt">void</span> <span class="n">signal</span><span class="p">()</span> <span class="p">{</span> <span class="n">cv_</span><span class="p">.</span><span class="n">notify_all</span><span class="p">();</span> <span class="p">}</span>
+    <span class="p">};</span>
+
+    <span class="n">Event</span> <span class="n">event_</span><span class="p">;</span>                                   <span class="c1">///&lt; Used to unblock the sub-node's select() call when IO happens.
+</span>    <span class="n">std</span><span class="o">::</span><span class="n">mutex</span> <span class="n">mutex_</span><span class="p">;</span>                              <span class="c1">///&lt; Shared across all ifaces
+</span>    <span class="n">uavcan</span><span class="o">::</span><span class="n">LazyConstructor</span><span class="o">&lt;</span><span class="n">Iface</span><span class="o">&gt;</span> <span class="n">ifaces_</span><span class="p">[</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MaxCanIfaces</span><span class="p">];</span>
+    <span class="k">const</span> <span class="kt">unsigned</span> <span class="n">num_ifaces_</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">clock_</span><span class="p">;</span>
+
+    <span class="cm">/**
+     * Implements uavcan::ICanDriver. Will be invoked by the sub-node.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanIface</span><span class="o">*</span> <span class="n">getIface</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">iface_index</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">iface_index</span> <span class="o">&lt;</span> <span class="n">num_ifaces_</span><span class="p">)</span> <span class="o">?</span> <span class="n">ifaces_</span><span class="p">[</span><span class="n">iface_index</span><span class="p">].</span><span class="k">operator</span> <span class="n">Iface</span><span class="o">*</span><span class="p">()</span> <span class="o">:</span> <span class="nb">nullptr</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Implements uavcan::ICanDriver. Will be invoked by the sub-node.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">getNumIfaces</span><span class="p">()</span> <span class="k">const</span> <span class="n">override</span> <span class="p">{</span> <span class="k">return</span> <span class="n">num_ifaces_</span><span class="p">;</span> <span class="p">}</span>
+
+    <span class="cm">/**
+     * Implements uavcan::ICanDriver. Will be invoked by the sub-node.
+     */</span>
+    <span class="n">std</span><span class="o">::</span><span class="kt">int16_t</span> <span class="n">select</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">CanSelectMasks</span><span class="o">&amp;</span> <span class="n">inout_masks</span><span class="p">,</span>
+                        <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanFrame</span><span class="o">*</span> <span class="p">(</span><span class="o">&amp;</span><span class="p">)[</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MaxCanIfaces</span><span class="p">],</span>
+                        <span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicTime</span> <span class="n">blocking_deadline</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="kt">bool</span> <span class="n">need_block</span> <span class="o">=</span> <span class="p">(</span><span class="n">inout_masks</span><span class="p">.</span><span class="n">write</span> <span class="o">==</span> <span class="mi">0</span><span class="p">);</span>    <span class="c1">// Write queue is infinite
+</span>        <span class="k">for</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">need_block</span> <span class="o">&amp;&amp;</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_ifaces_</span><span class="p">);</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">bool</span> <span class="n">need_read</span> <span class="o">=</span> <span class="n">inout_masks</span><span class="p">.</span><span class="n">read</span> <span class="o">&amp;</span> <span class="p">(</span><span class="mi">1U</span> <span class="o">&lt;&lt;</span> <span class="n">i</span><span class="p">);</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">need_read</span> <span class="o">&amp;&amp;</span> <span class="n">ifaces_</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">hasDataInRxQueue</span><span class="p">())</span>
+            <span class="p">{</span>
+                <span class="n">need_block</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">need_block</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">event_</span><span class="p">.</span><span class="n">waitFor</span><span class="p">(</span><span class="n">blocking_deadline</span> <span class="o">-</span> <span class="n">clock_</span><span class="p">.</span><span class="n">getMonotonic</span><span class="p">());</span>
+        <span class="p">}</span>
+
+        <span class="n">inout_masks</span> <span class="o">=</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanSelectMasks</span><span class="p">();</span>
+        <span class="k">for</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_ifaces_</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="kt">uint8_t</span> <span class="n">iface_mask</span> <span class="o">=</span> <span class="mi">1U</span> <span class="o">&lt;&lt;</span> <span class="n">i</span><span class="p">;</span>
+            <span class="n">inout_masks</span><span class="p">.</span><span class="n">write</span> <span class="o">|=</span> <span class="n">iface_mask</span><span class="p">;</span>           <span class="c1">// Always ready to write
+</span>            <span class="k">if</span> <span class="p">(</span><span class="n">ifaces_</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">hasDataInRxQueue</span><span class="p">())</span>
+            <span class="p">{</span>
+                <span class="n">inout_masks</span><span class="p">.</span><span class="n">read</span> <span class="o">|=</span> <span class="n">iface_mask</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">num_ifaces_</span><span class="p">;</span>       <span class="c1">// We're always ready to write, hence &gt; 0.
+</span>    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Implements uavcan::IRxFrameListener. Will be invoked by the main node.
+     */</span>
+    <span class="kt">void</span> <span class="n">handleRxFrame</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">CanRxFrame</span><span class="o">&amp;</span> <span class="n">frame</span><span class="p">,</span>
+                       <span class="n">uavcan</span><span class="o">::</span><span class="n">CanIOFlags</span> <span class="n">flags</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+<span class="cp">#if !NDEBUG &amp;&amp; UAVCAN_TOSTRING
+</span>            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"uavcan_virtual_driver::Driver: RX [flags="</span> <span class="o">&lt;&lt;</span> <span class="n">flags</span> <span class="o">&lt;&lt;</span> <span class="s">"]: "</span>
+                      <span class="o">&lt;&lt;</span> <span class="n">frame</span><span class="p">.</span><span class="n">toString</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">CanFrame</span><span class="o">::</span><span class="n">StrAligned</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+<span class="cp">#endif
+</span>        <span class="k">if</span> <span class="p">(</span><span class="n">frame</span><span class="p">.</span><span class="n">iface_index</span> <span class="o">&lt;</span> <span class="n">num_ifaces_</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">ifaces_</span><span class="p">[</span><span class="n">frame</span><span class="p">.</span><span class="n">iface_index</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">addRxFrame</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">flags</span><span class="p">);</span>
+            <span class="n">event_</span><span class="p">.</span><span class="n">signal</span><span class="p">();</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/**
+     * Implements ITxQueueInjector. Will be invoked by the main thread.
+     */</span>
+    <span class="kt">void</span> <span class="n">injectTxFramesInto</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">INode</span><span class="o">&amp;</span> <span class="n">main_node</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="k">for</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_ifaces_</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">ifaces_</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">flushTxQueueTo</span><span class="p">(</span><span class="n">main_node</span><span class="p">,</span> <span class="n">i</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="n">event_</span><span class="p">.</span><span class="n">signal</span><span class="p">();</span>
+    <span class="p">}</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="cm">/**
+     * This class should be instantiated by the secondary thread.
+     *
+     * @param arg_num_ifaces    The number of interfaces defines how many virtual interfaces will be instantiated
+     *                          by this class. IT DOESN'T HAVE TO MATCH THE NUMBER OF PHYSICAL INTERFACES THE MAIN
+     *                          NODE IS USING - it can be less than that (but not greater), in which case the
+     *                          sub-node will be using only interfaces with lower indices, which may be fine
+     *                          (depending on the application's requirements). For example, if the main node has
+     *                          three interfaces with indices 0, 1, 2, and the virtual driver implements only two,
+     *                          the sub-node will only have access to interfaces 0 and 1.
+     *
+     * @param clock             Needed by the virtual iface class, and for select() timing.
+     *
+     * @param shared_allocator  This allocator will be used to keep inter-thread queues.
+     *
+     * @param block_allocation_quota_per_virtual_iface  Maximum number of blocks that can be allocated per virtual
+     *                                                  iface. Ifaces use dynamic memory to keep RX/TX queues, so
+     *                                                  higher quota enables deeper queues. Note that ifaces DO NOT
+     *                                                  allocate memory unless they need it, i.e. the memory will not
+     *                                                  be taken unless there is data to enqueue; once a queue is
+     *                                                  flushed, the memory will be immediately freed.
+     *                                                  One block fits exactly one CAN frame, i.e. a quota of 64
+     *                                                  blocks allows the interface to keep up to 64 RX+TX CAN frames.
+     */</span>
+    <span class="n">Driver</span><span class="p">(</span><span class="kt">unsigned</span> <span class="n">arg_num_ifaces</span><span class="p">,</span>
+           <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">clock</span><span class="p">,</span>
+           <span class="n">uavcan</span><span class="o">::</span><span class="n">IPoolAllocator</span><span class="o">&amp;</span> <span class="n">shared_allocator</span><span class="p">,</span>
+           <span class="kt">unsigned</span> <span class="n">block_allocation_quota_per_virtual_iface</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">num_ifaces_</span><span class="p">(</span><span class="n">arg_num_ifaces</span><span class="p">),</span>
+        <span class="n">clock_</span><span class="p">(</span><span class="n">clock</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">assert</span><span class="p">(</span><span class="n">num_ifaces_</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="n">num_ifaces_</span> <span class="o">&lt;=</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MaxCanIfaces</span><span class="p">);</span>
+
+        <span class="k">const</span> <span class="kt">unsigned</span> <span class="n">quota_per_queue</span> <span class="o">=</span> <span class="n">block_allocation_quota_per_virtual_iface</span><span class="p">;</span> <span class="c1">// 2x overcommit
+</span>
+        <span class="k">for</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_ifaces_</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">ifaces_</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="k">template</span>
+                <span class="n">construct</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">IPoolAllocator</span><span class="o">&amp;</span><span class="p">,</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span><span class="p">,</span> <span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&amp;</span><span class="p">,</span> <span class="kt">unsigned</span><span class="o">&gt;</span>
+                    <span class="p">(</span><span class="n">shared_allocator</span><span class="p">,</span> <span class="n">clock_</span><span class="p">,</span> <span class="n">mutex_</span><span class="p">,</span> <span class="n">quota_per_queue</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<h3 id="demo-application">Demo application</h3>
+
+<p>This demo also shows how to use a thread-safe heap-based shared block memory allocator.
+This allocator enables lower memory footprint for compound nodes than the default one.</p>
+
+<div class="language-cpp highlighter-rouge"><pre class="highlight"><code><span class="cm">/*
+ * This demo shows how to implement a multi-threaded UAVCAN node with libuavcan.
+ *
+ * The main thread is publishing KeyValue messages, simulating a hard real-time task.
+ *
+ * The secondary thread is running an active node monitor (based on uavcan::NodeInfoRetriever),
+ * which performs blocking filesystem I/O and therefore cannot be implemented in the main thread.
+ */</span>
+
+<span class="cm">/*
+ * Standard C++ headers.
+ */</span>
+<span class="cp">#include &lt;iostream&gt;                     // For std::cout and std::cerr
+#include &lt;fstream&gt;                      // For std::ofstream, which is used in the demo payload logic
+#include &lt;thread&gt;                       // For std::thread
+</span>
+<span class="cm">/*
+ * Libuavcan headers.
+ */</span>
+<span class="cp">#include &lt;uavcan/uavcan.hpp&gt;            // Main libuavcan header
+#include &lt;uavcan/node/sub_node.hpp&gt;     // For uavcan::SubNode, which is essential for multithreaded nodes
+#include &lt;uavcan/helpers/heap_based_pool_allocator.hpp&gt; // In this example we're going to use heap-based allocator
+</span>
+<span class="cm">/*
+ * These are purely for demonstrational purposes - they have no relation to multithreading.
+ */</span>
+<span class="cp">#include &lt;uavcan/protocol/debug/KeyValue.hpp&gt;
+#include &lt;uavcan/protocol/node_info_retriever.hpp&gt;
+</span>
+<span class="cm">/*
+ * Demo implementation of a virtual CAN driver.
+ */</span>
+<span class="cp">#include "uavcan_virtual_driver.hpp"
+</span>
+<span class="cm">/*
+ * These functions are explained in one of the first tutorials.
+ */</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ICanDriver</span><span class="o">&amp;</span> <span class="n">getCanDriver</span><span class="p">();</span>
+<span class="k">extern</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">ISystemClock</span><span class="o">&amp;</span> <span class="n">getSystemClock</span><span class="p">();</span>
+
+<span class="cm">/**
+ * This class demonstrates a simple main node that is supposed to run some hard real-time tasks.
+ */</span>
+<span class="k">class</span> <span class="nc">MainNodeDemo</span>
+<span class="p">{</span>
+    <span class="cm">/**
+     * This value will be reported by the allocator (read below) via @ref getBlockCapacity().
+     * The real limit (hard limit) can be configured separately, and its default value is twice the soft limit.
+     */</span>
+    <span class="k">static</span> <span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">AllocatorBlockCapacitySoftLimit</span> <span class="o">=</span> <span class="mi">250</span><span class="p">;</span>
+
+    <span class="cm">/**
+     * Libuavcan's allocators can be made thread-safe by means of providing optional template argument - a type
+     * that will be instantiated within every thread-critical context.
+     * Since this allocator will be shared between nodes working in different threads, it must be thread-safe.
+     */</span>
+    <span class="k">struct</span> <span class="n">AllocatorSynchronizer</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&amp;</span> <span class="n">getMutex</span><span class="p">()</span>
+        <span class="p">{</span>
+            <span class="k">static</span> <span class="n">std</span><span class="o">::</span><span class="n">mutex</span> <span class="n">m</span><span class="p">;</span>
+            <span class="k">return</span> <span class="n">m</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="n">AllocatorSynchronizer</span><span class="p">()</span>  <span class="p">{</span> <span class="n">getMutex</span><span class="p">().</span><span class="n">lock</span><span class="p">();</span> <span class="p">}</span>
+        <span class="o">~</span><span class="n">AllocatorSynchronizer</span><span class="p">()</span> <span class="p">{</span> <span class="n">getMutex</span><span class="p">().</span><span class="n">unlock</span><span class="p">();</span> <span class="p">}</span>
+    <span class="p">};</span>
+
+    <span class="cm">/**
+     * It is also possible to use the default pool-based allocator here, but we'll use the heap-based one for
+     * demonstrational purposes. The difference is that the heap-based allocator doesn't reserve the pool statically,
+     * instead it takes the memory from the heap using std::malloc(), and then keeps it for future use. This allocator
+     * has the following advantages over the default one:
+     *
+     *  - Lower memory footprint. This is because it only allocates memory when the node needs it. Once a block is
+     *    allocated, it will be kept for future re-use, therefore it doesn't need to constantly access heap (otherwise
+     *    that would be highly non-deterministic and cause heap fragmentation).
+     *
+     *  - Ability to shrink if the memory is no longer needed. For example, after the node has finished a certain
+     *    operation that required a lot of memory, it can be reclaimed back by means of calling
+     *    @ref uavcan::HeapBasedPoolAllocator::shrink(). This method will call std::free() for every block that is
+     *    not currently in use by the node.
+     *
+     * Needless to say, initial allocations depend on std::malloc(), which may cause problems for real-time
+     * applications, so this allocator should be used with care. If in doubt, use traditional one, since it also
+     * can be made thread-safe. Or even use independent allocators per every (sub)node object, this is even more
+     * deterministic, but takes much more memory.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">HeapBasedPoolAllocator</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MemPoolBlockSize</span><span class="p">,</span> <span class="n">AllocatorSynchronizer</span><span class="o">&gt;</span> <span class="n">allocator_</span><span class="p">;</span>
+
+    <span class="cm">/**
+     * Note that we don't provide the pool size parameter to the @ref uavcan::Node template.
+     * If no value is provided, it defaults to zero, making the node expect a reference to @ref uavcan::IPoolAllocator
+     * to the constructor. This allows us to install a custom allocator, instantiated above.
+     */</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">Node</span><span class="o">&lt;&gt;</span> <span class="n">node_</span><span class="p">;</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="n">MainNodeDemo</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">self_node_id</span><span class="p">,</span> <span class="k">const</span> <span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span> <span class="n">self_node_name</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">allocator_</span><span class="p">(</span><span class="n">AllocatorBlockCapacitySoftLimit</span><span class="p">),</span>
+        <span class="n">node_</span><span class="p">(</span><span class="n">getCanDriver</span><span class="p">(),</span> <span class="n">getSystemClock</span><span class="p">(),</span> <span class="n">allocator_</span><span class="p">)</span>     <span class="c1">// Installing our custom allocator.
+</span>    <span class="p">{</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">);</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setName</span><span class="p">(</span><span class="n">self_node_name</span><span class="p">.</span><span class="n">c_str</span><span class="p">());</span>
+    <span class="p">}</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">INode</span><span class="o">&amp;</span> <span class="n">getNode</span><span class="p">()</span> <span class="p">{</span> <span class="k">return</span> <span class="n">node_</span><span class="p">;</span> <span class="p">}</span>
+
+    <span class="cm">/**
+     * Needed only for demonstration.
+     */</span>
+    <span class="kt">unsigned</span> <span class="n">getMemoryAllocatorFootprint</span><span class="p">()</span> <span class="k">const</span>
+    <span class="p">{</span>
+        <span class="k">return</span> <span class="n">allocator_</span><span class="p">.</span><span class="n">getNumReservedBlocks</span><span class="p">()</span> <span class="o">*</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">MemPoolBlockSize</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">runForever</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">start_res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">start_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the main node: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">start_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Initializing a KV publisher.
+         * This publication simulates a hard-real time task for the main node.
+         */</span>
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">Publisher</span><span class="o">&lt;</span><span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span><span class="o">&gt;</span> <span class="n">kv_pub</span><span class="p">(</span><span class="n">node_</span><span class="p">);</span>
+        <span class="n">uavcan</span><span class="o">::</span><span class="n">Timer</span> <span class="n">kv_pub_timer</span><span class="p">(</span><span class="n">node_</span><span class="p">);</span>
+
+        <span class="n">kv_pub_timer</span><span class="p">.</span><span class="n">startPeriodic</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">1000</span><span class="p">));</span>
+
+        <span class="n">kv_pub_timer</span><span class="p">.</span><span class="n">setCallback</span><span class="p">([</span><span class="o">&amp;</span><span class="n">kv_pub</span><span class="p">](</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">TimerEvent</span><span class="o">&amp;</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">debug</span><span class="o">::</span><span class="n">KeyValue</span> <span class="n">msg</span><span class="p">;</span>
+                <span class="n">msg</span><span class="p">.</span><span class="n">key</span> <span class="o">=</span> <span class="s">"Bob"</span><span class="p">;</span>
+                <span class="n">msg</span><span class="p">.</span><span class="n">value</span> <span class="o">=</span> <span class="mf">1.0</span><span class="n">F</span> <span class="o">/</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">rand</span><span class="p">());</span>
+                <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">kv_pub</span><span class="p">.</span><span class="n">broadcast</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>      <span class="c1">// TODO: Error handling
+</span>            <span class="p">});</span>
+
+        <span class="cm">/*
+         * We know that in this implementation the class uavcan_virtual_driver::Driver inherits uavcan::IRxFrameListener,
+         * so we can simply restore the reference to uavcan_virtual_driver::ITxQueueInjector using dynamic_cast&lt;&gt;.
+         *
+         * In other implementations this approach may be unacceptable (e.g. RTTI, which is required for dynamic_cast&lt;&gt;,
+         * is often unavailable on deeply embedded systems), so a reference to uavcan_virtual_driver::ITxQueueInjector
+         * will have to be passed here using some other means (e.g. as a reference to the constructor).
+         */</span>
+        <span class="k">while</span> <span class="p">(</span><span class="n">node_</span><span class="p">.</span><span class="n">getDispatcher</span><span class="p">().</span><span class="n">getRxFrameListener</span><span class="p">()</span> <span class="o">==</span> <span class="nb">nullptr</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="c1">// Waiting for the sub-node to install the RX listener.
+</span>            <span class="n">std</span><span class="o">::</span><span class="n">this_thread</span><span class="o">::</span><span class="n">sleep_for</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">chrono</span><span class="o">::</span><span class="n">milliseconds</span><span class="p">(</span><span class="mi">10</span><span class="p">));</span>
+        <span class="p">}</span>
+        <span class="k">auto</span><span class="o">&amp;</span> <span class="n">tx_injector</span> <span class="o">=</span>
+            <span class="k">dynamic_cast</span><span class="o">&lt;</span><span class="n">uavcan_virtual_driver</span><span class="o">::</span><span class="n">ITxQueueInjector</span><span class="o">&amp;&gt;</span><span class="p">(</span><span class="o">*</span><span class="n">node_</span><span class="p">.</span><span class="n">getDispatcher</span><span class="p">().</span><span class="n">getRxFrameListener</span><span class="p">());</span>
+
+        <span class="cm">/*
+         * Running the node ALMOST normally.
+         *
+         * Spinning must break every once in a while in order to unload TX queue of the sub-node into the
+         * TX queue of the main node. Duration of spinning defines worst-case transmission delay for sub-node's
+         * outgoing frames. Since sub-nodes are not supposed to run hard real-time processes, transmission delays
+         * introduced by periodic queue synchronizations are acceptable.
+         */</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setModeOperational</span><span class="p">();</span>
+
+        <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">fromMSec</span><span class="p">(</span><span class="mi">2</span><span class="p">));</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+            <span class="c1">// CAN frame transfer from sub-node to the main node occurs here.
+</span>            <span class="n">tx_injector</span><span class="p">.</span><span class="n">injectTxFramesInto</span><span class="p">(</span><span class="n">node_</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="cm">/**
+ * This is just some demo logic, it has nothing to do with multithreading.
+ * This class implements uavcan::INodeInfoListener, storing node info on the file system, one file per node.
+ * Please refer to the tutorial "Node discovery" to learn more.
+ */</span>
+<span class="k">class</span> <span class="nc">FileBasedNodeInfoCollector</span> <span class="n">final</span> <span class="o">:</span> <span class="k">public</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">INodeInfoListener</span>
+<span class="p">{</span>
+    <span class="kt">void</span> <span class="n">handleNodeInfoRetrieved</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">node_id</span><span class="p">,</span>
+                                 <span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">GetNodeInfo</span><span class="o">::</span><span class="n">Response</span><span class="o">&amp;</span> <span class="n">node_info</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node info for "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">":</span><span class="se">\n</span><span class="s">"</span> <span class="o">&lt;&lt;</span> <span class="n">node_info</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">ofstream</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">()))</span> <span class="o">&lt;&lt;</span> <span class="n">node_info</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">handleNodeInfoUnavailable</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">NodeID</span> <span class="n">node_id</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node info for "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">" is unavailable"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">ofstream</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">()))</span> <span class="o">&lt;&lt;</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">GetNodeInfo</span><span class="o">::</span><span class="n">Response</span><span class="p">();</span>
+    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">handleNodeStatusChange</span><span class="p">(</span><span class="k">const</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeStatusMonitor</span><span class="o">::</span><span class="n">NodeStatusChangeEvent</span><span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span> <span class="n">override</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">status</span><span class="p">.</span><span class="n">mode</span> <span class="o">==</span> <span class="n">uavcan</span><span class="o">::</span><span class="n">protocol</span><span class="o">::</span><span class="n">NodeStatus</span><span class="o">::</span><span class="n">MODE_OFFLINE</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Node "</span> <span class="o">&lt;&lt;</span> <span class="kt">int</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">())</span> <span class="o">&lt;&lt;</span> <span class="s">" went offline"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">std</span><span class="o">::</span><span class="n">remove</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">event</span><span class="p">.</span><span class="n">node_id</span><span class="p">.</span><span class="n">get</span><span class="p">()).</span><span class="n">c_str</span><span class="p">());</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="cm">/**
+ * This class demonstrates a simple sub-node that is supposed to run CPU-intensive, blocking, non-realtime tasks.
+ */</span>
+<span class="k">class</span> <span class="nc">SubNodeDemo</span>
+<span class="p">{</span>
+    <span class="k">static</span> <span class="k">constexpr</span> <span class="kt">unsigned</span> <span class="n">BlockAllocationQuotaPerIface</span> <span class="o">=</span> <span class="mi">80</span><span class="p">;</span>
+
+    <span class="n">uavcan_virtual_driver</span><span class="o">::</span><span class="n">Driver</span> <span class="n">driver_</span><span class="p">;</span>
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">SubNode</span><span class="o">&lt;&gt;</span> <span class="n">node_</span><span class="p">;</span>
+
+    <span class="n">uavcan</span><span class="o">::</span><span class="n">NodeInfoRetriever</span> <span class="n">retriever_</span><span class="p">;</span>
+    <span class="n">FileBasedNodeInfoCollector</span> <span class="n">collector_</span><span class="p">;</span>
+
+<span class="k">public</span><span class="o">:</span>
+    <span class="cm">/**
+     * Sub-node needs a reference to the main node in order to bind its virtual CAN driver to it.
+     * Also, the sub-node and the virtual iface all use the same allocator from the main node (it is thread-safe).
+     * It is also possible to use dedicated allocators for every entity, but that would lead to higher memory
+     * footprint.
+     */</span>
+    <span class="n">SubNodeDemo</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">INode</span><span class="o">&amp;</span> <span class="n">main_node</span><span class="p">)</span> <span class="o">:</span>
+        <span class="n">driver_</span><span class="p">(</span><span class="n">main_node</span><span class="p">.</span><span class="n">getDispatcher</span><span class="p">().</span><span class="n">getCanIOManager</span><span class="p">().</span><span class="n">getCanDriver</span><span class="p">().</span><span class="n">getNumIfaces</span><span class="p">(),</span> <span class="c1">// Nice?
+</span>                <span class="n">getSystemClock</span><span class="p">(),</span>
+                <span class="n">main_node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">(),</span>       <span class="c1">// Installing our custom allocator from the main node.
+</span>                <span class="n">BlockAllocationQuotaPerIface</span><span class="p">),</span>
+        <span class="n">node_</span><span class="p">(</span><span class="n">driver_</span><span class="p">,</span>
+              <span class="n">getSystemClock</span><span class="p">(),</span>
+              <span class="n">main_node</span><span class="p">.</span><span class="n">getAllocator</span><span class="p">()),</span>        <span class="c1">// Installing our custom allocator from the main node.
+</span>        <span class="n">retriever_</span><span class="p">(</span><span class="n">node_</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">node_</span><span class="p">.</span><span class="n">setNodeID</span><span class="p">(</span><span class="n">main_node</span><span class="p">.</span><span class="n">getNodeID</span><span class="p">());</span>                     <span class="c1">// Obviously, we must use the same node ID.
+</span>
+        <span class="n">main_node</span><span class="p">.</span><span class="n">getDispatcher</span><span class="p">().</span><span class="n">installRxFrameListener</span><span class="p">(</span><span class="o">&amp;</span><span class="n">driver_</span><span class="p">);</span> <span class="c1">// RX frames will be copied to the virtual driver.
+</span>    <span class="p">}</span>
+
+    <span class="kt">void</span> <span class="n">runForever</span><span class="p">()</span>
+    <span class="p">{</span>
+        <span class="cm">/*
+         * Initializing the demo payload.
+         * Note that the payload doesn't know that it's being runned by a secondary node - on the application level,
+         * there's no difference between a sub-node and the main node.
+         */</span>
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">retriever_res</span> <span class="o">=</span> <span class="n">retriever_</span><span class="p">.</span><span class="n">start</span><span class="p">();</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">retriever_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to start the retriever; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">retriever_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="k">const</span> <span class="kt">int</span> <span class="n">add_listener_res</span> <span class="o">=</span> <span class="n">retriever_</span><span class="p">.</span><span class="n">addListener</span><span class="p">(</span><span class="o">&amp;</span><span class="n">collector_</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">add_listener_res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">throw</span> <span class="n">std</span><span class="o">::</span><span class="n">runtime_error</span><span class="p">(</span><span class="s">"Failed to add listener; error: "</span> <span class="o">+</span> <span class="n">std</span><span class="o">::</span><span class="n">to_string</span><span class="p">(</span><span class="n">add_listener_res</span><span class="p">));</span>
+        <span class="p">}</span>
+
+        <span class="cm">/*
+         * Running the node normally.
+         * Note that the SubNode class does not implement the start() method - there's nothing to start.
+         */</span>
+        <span class="k">while</span> <span class="p">(</span><span class="nb">true</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="k">const</span> <span class="kt">int</span> <span class="n">res</span> <span class="o">=</span> <span class="n">node_</span><span class="p">.</span><span class="n">spin</span><span class="p">(</span><span class="n">uavcan</span><span class="o">::</span><span class="n">MonotonicDuration</span><span class="o">::</span><span class="n">getInfinite</span><span class="p">());</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Transient failure: "</span> <span class="o">&lt;&lt;</span> <span class="n">res</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">std</span><span class="o">::</span><span class="n">cerr</span> <span class="o">&lt;&lt;</span> <span class="s">"Usage: "</span> <span class="o">&lt;&lt;</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="s">" &lt;node-id&gt;"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">const</span> <span class="kt">int</span> <span class="n">self_node_id</span> <span class="o">=</span> <span class="n">std</span><span class="o">::</span><span class="n">stoi</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+
+    <span class="n">MainNodeDemo</span> <span class="n">main_node</span><span class="p">(</span><span class="n">self_node_id</span><span class="p">,</span> <span class="s">"org.uavcan.tutorial.multithreading"</span><span class="p">);</span>
+
+    <span class="n">SubNodeDemo</span> <span class="n">sub_node</span><span class="p">(</span><span class="n">main_node</span><span class="p">.</span><span class="n">getNode</span><span class="p">());</span>
+
+    <span class="n">std</span><span class="o">::</span><span class="kr">thread</span> <span class="n">secondary_thread</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">bind</span><span class="p">(</span><span class="o">&amp;</span><span class="n">SubNodeDemo</span><span class="o">::</span><span class="n">runForever</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">sub_node</span><span class="p">));</span>
+
+    <span class="c1">// This thread is only needed for demo purposes; can be removed freely.
+</span>    <span class="n">std</span><span class="o">::</span><span class="kr">thread</span> <span class="n">allocator_stat_reporting_thread</span><span class="p">([</span><span class="o">&amp;</span><span class="n">main_node</span><span class="p">]()</span>
+        <span class="p">{</span>
+            <span class="kt">unsigned</span> <span class="n">last_peak</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+            <span class="k">for</span> <span class="p">(;;)</span>
+            <span class="p">{</span>
+                <span class="n">std</span><span class="o">::</span><span class="n">this_thread</span><span class="o">::</span><span class="n">sleep_for</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">chrono</span><span class="o">::</span><span class="n">seconds</span><span class="p">(</span><span class="mi">1</span><span class="p">));</span>
+                <span class="k">const</span> <span class="k">auto</span> <span class="n">usage</span> <span class="o">=</span> <span class="n">main_node</span><span class="p">.</span><span class="n">getMemoryAllocatorFootprint</span><span class="p">();</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">usage</span> <span class="o">!=</span> <span class="n">last_peak</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">last_peak</span> <span class="o">=</span> <span class="n">usage</span><span class="p">;</span>
+                    <span class="n">std</span><span class="o">::</span><span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">"Memory footprint: "</span> <span class="o">&lt;&lt;</span> <span class="n">last_peak</span> <span class="o">&lt;&lt;</span> <span class="s">" bytes"</span> <span class="o">&lt;&lt;</span> <span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">});</span>
+
+    <span class="n">main_node</span><span class="p">.</span><span class="n">runForever</span><span class="p">();</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">secondary_thread</span><span class="p">.</span><span class="n">joinable</span><span class="p">())</span>
+    <span class="p">{</span>
+        <span class="n">secondary_thread</span><span class="p">.</span><span class="n">join</span><span class="p">();</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre>
+</div>
+
+<p>Possible output:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>uavcan_virtual_iface::Driver: Total memory blocks: 468, blocks per queue: 468
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1001557f   05 00 00 00 00 00 00 c5  '........' ts_m=120912.553326 ts_utc=1443574957.568273 iface=0
+uavcan_virtual_iface::Iface: TX injection [iface_index=0]: &lt;volat&gt; 0x1e01ff81   c0  '.'
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   18 ef 05 00 00 00 00 80  '........' ts_m=120912.594184 ts_utc=1443574957.609083 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   00 00 00 00 00 00 00 20  '....... ' ts_m=120912.594188 ts_utc=1443574957.609096 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   00 00 00 00 00 00 00 00  '........' ts_m=120912.594189 ts_utc=1443574957.609102 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   00 00 00 00 00 00 00 20  '....... ' ts_m=120912.594189 ts_utc=1443574957.609110 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   00 00 00 00 00 00 00 00  '........' ts_m=120912.594190 ts_utc=1443574957.609116 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   00 00 00 00 00 00 00 20  '....... ' ts_m=120912.594191 ts_utc=1443574957.609121 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   00 6f 72 67 2e 75 61 00  '.org.ua.' ts_m=120912.594192 ts_utc=1443574957.609128 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   76 63 61 6e 2e 6c 69 20  'vcan.li ' ts_m=120912.594193 ts_utc=1443574957.609131 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   6e 75 78 5f 61 70 70 00  'nux_app.' ts_m=120912.594194 ts_utc=1443574957.609135 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   2e 6e 6f 64 65 74 6f 20  '.nodeto ' ts_m=120912.594195 ts_utc=1443574957.609139 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1e0101ff   6f 6c 40                 'ol@' ts_m=120912.594195 ts_utc=1443574957.609143 iface=0
+Node info for 127:
+status:
+  uptime_sec: 5
+  health: 0
+  mode: 0
+  sub_mode: 0
+  vendor_specific_status_code: 0
+software_version:
+  major: 0
+  minor: 0
+  optional_field_flags: 0
+  vcs_commit: 0
+  image_crc: 0
+hardware_version:
+  major: 0
+  minor: 0
+  unique_id: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  certificate_of_authenticity: ""
+name: "org.uavcan.linux_app.nodetool"
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1001557f   06 00 00 00 00 00 00 c6  '........' ts_m=120913.553339 ts_utc=1443574958.568299 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1001557f   07 00 00 00 00 00 00 c7  '........' ts_m=120914.553385 ts_utc=1443574959.568286 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1001557f   08 00 00 00 00 00 00 c8  '........' ts_m=120915.553300 ts_utc=1443574960.568262 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1001557f   09 00 00 00 00 00 00 c9  '........' ts_m=120916.553426 ts_utc=1443574961.568343 iface=0
+uavcan_virtual_iface::Driver: RX [flags=0]: 0x1001557f   0a 00 00 00 00 00 00 ca  '........' ts_m=120917.553359 ts_utc=1443574962.568282 iface=0
+Node 127 went offline
+</code></pre>
+</div>
+
+<h3 id="running-on-linux">Running on Linux</h3>
+
+<p>Build the application using the following CMake script:</p>
+
+<div class="language-cmake highlighter-rouge"><pre class="highlight"><code><span class="nb">cmake_minimum_required</span><span class="p">(</span>VERSION 2.8<span class="p">)</span>
+
+<span class="nb">project</span><span class="p">(</span>tutorial_project<span class="p">)</span>
+
+<span class="nb">find_library</span><span class="p">(</span>UAVCAN_LIB uavcan REQUIRED<span class="p">)</span>
+
+<span class="nb">set</span><span class="p">(</span>CMAKE_CXX_FLAGS <span class="s2">"-pthread -Wall -Wextra -pedantic -std=c++11"</span><span class="p">)</span>
+
+<span class="nb">add_executable</span><span class="p">(</span>node node.cpp <span class="si">${</span><span class="nv">CMAKE_SOURCE_DIR</span><span class="si">}</span>/../2._Node_initialization_and_startup/platform_linux.cpp<span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span>node <span class="si">${</span><span class="nv">UAVCAN_LIB</span><span class="si">}</span> rt<span class="p">)</span>
+
+</code></pre>
+</div>

@@ -1,0 +1,132 @@
+<h1 id="libuavcan">Libuavcan</h1>
+
+<p><a class="imagelink" href="figures/libuavcan_data_flow.png" data-lightbox="figures/libuavcan_data_flow.png" data-title="Libuavcan data flow">
+<img src="figures/libuavcan_data_flow.png" class="thumbnail" style="" />
+</a></p>
+
+<p>Libuavcan is a portable, cross-platform library written in C++ with minimal dependency on the C++ standard library.
+It can be compiled by virtually any standard-compliant C++ compiler and can be used on virtually any architecture/OS.
+Libuavcan is free to use for anyone under the terms of the MIT open source license.</p>
+
+<p>Libuavcan is implemented in two components:</p>
+
+<ul>
+  <li>Cross-platform <strong>core</strong>.
+This is the largest component that implements the entire UAVCAN stack in a platform-independent way.</li>
+  <li>Platform-specific <strong>drivers</strong>.
+These are thin layers that adapt the core for a particular OS/architecture.
+Drivers are separated from the core by a few C++ interface classes.
+There are default drivers available for some popular platforms (e.g., Linux, STM32, LPC11C24).</li>
+</ul>
+
+<p>The libuavcan core can be compiled in either C++03 or C++11 mode.
+In the latter case, some extra features are enabled (e.g., callbacks will be implemented through <code class="highlighter-rouge">std::function</code>
+instead of through raw function pointers).</p>
+
+<p>In C++03 mode, the implementation has almost zero dependency on the C++ standard library,
+which allows to use the library on platforms with very limited C++ support.
+C++11 mode though requires many parts of the standard library (e.g., <code class="highlighter-rouge">&lt;functional&gt;</code>).
+The library can detect the actual C++ standard in use at compile time,
+but this can be overridden to force the older C++ standard if desired
+(e.g., if the application is compiled in C++11 mode but the full standard library is not available).</p>
+
+<p>The library supports a few compile-time configuration options via preprocessor symbols that allow to fine-tune
+the implementation for a particular platform/application; in most cases though, it’s not required because
+there’s either a safe default value or an auto-detect setting provided for each configuration option.</p>
+
+<p>The implementation also features the following properties that render the library suitable
+for deeply embedded and real-time systems:</p>
+
+<ul>
+  <li>Zero use of the heap
+(a custom built-in block memory allocator is implemented, which is deterministic and fragmentation free).</li>
+  <li>No C++ exceptions are used by default, but the library can be configured via preprocessor symbols to throw
+exceptions if a fatal error occurs (e.g., unexpected null pointer, boundary check failure, etc.).</li>
+  <li>No run-time type identification (RTTI) is used.</li>
+  <li>The source code is partially compliant with MISRA C++ 2008.</li>
+  <li>The code is unit tested and validated using strong static analysis tools.</li>
+</ul>
+
+<p><strong>The source code is available here: <a href="https://github.com/UAVCAN/libuavcan">https://github.com/UAVCAN/libuavcan</a>.</strong></p>
+
+<h2 id="build-dependencies">Build dependencies</h2>
+
+<p>The following software must be installed on the host computer in order to build the library:</p>
+
+<ul>
+  <li>Either <a href="https://www.python.org">Python 2.7 or Python 3.x</a> - needed for the DSDL compiler.</li>
+  <li>A suitable C++ compiler (see below).</li>
+  <li>Additional dependencies, if any, depending on the environment.
+Please read the documentation related to your platform (refer to subsections) for more information.</li>
+</ul>
+
+<h3 id="c-compiler-requirements">C++ compiler requirements</h3>
+
+<h4 id="c11">C++11</h4>
+
+<ul>
+  <li>IEEE754 floating point</li>
+  <li>At least the following headers of the C++ standard library must be available:
+    <ul>
+      <li><code class="highlighter-rouge">cassert</code></li>
+      <li><code class="highlighter-rouge">climits</code></li>
+      <li><code class="highlighter-rouge">cmath</code></li>
+      <li><code class="highlighter-rouge">cstddef</code></li>
+      <li><code class="highlighter-rouge">cstdio</code></li>
+      <li><code class="highlighter-rouge">cstdlib</code></li>
+      <li><code class="highlighter-rouge">cstring</code></li>
+      <li><code class="highlighter-rouge">cstdint</code></li>
+      <li><code class="highlighter-rouge">cfloat</code></li>
+      <li><code class="highlighter-rouge">cerrno</code></li>
+      <li><code class="highlighter-rouge">functional</code></li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="c03">C++03</h4>
+
+<ul>
+  <li>IEEE754 floating point</li>
+  <li><code class="highlighter-rouge">long long</code> and <code class="highlighter-rouge">unsigned long long</code> integer types</li>
+  <li>At least the following headers of the C++ standard library must be available:
+    <ul>
+      <li><code class="highlighter-rouge">cassert</code></li>
+      <li><code class="highlighter-rouge">climits</code></li>
+      <li><code class="highlighter-rouge">cmath</code></li>
+      <li><code class="highlighter-rouge">cstddef</code></li>
+      <li><code class="highlighter-rouge">cstdio</code></li>
+      <li><code class="highlighter-rouge">cstdlib</code></li>
+      <li><code class="highlighter-rouge">cstring</code></li>
+    </ul>
+  </li>
+  <li>The following headers of the C standard library must be available:
+    <ul>
+      <li><code class="highlighter-rouge">float.h</code></li>
+      <li><code class="highlighter-rouge">stdint.h</code></li>
+      <li><code class="highlighter-rouge">stdio.h</code></li>
+    </ul>
+  </li>
+</ul>
+
+<h2 id="dsdl-compiler">DSDL compiler</h2>
+
+<p>Libuavcan has a DSDL compiler that converts DSDL definitions into libuavcan-compatible header files (<code class="highlighter-rouge">*.hpp</code>).
+The compiler is titled <code class="highlighter-rouge">libuavcan_dsdlc</code>, and it is invoked as follows:</p>
+
+<div class="language-sh highlighter-rouge"><pre class="highlight"><code>libuavcan_dsdlc source_dir
+</code></pre>
+</div>
+
+<p>Where <code class="highlighter-rouge">source_dir</code> is the root namespace directory containing the data type definitions to be compiled,
+e.g. <code class="highlighter-rouge">dsdl/uavcan</code>.
+Please use <code class="highlighter-rouge">libuavcan_dsdlc --help</code> to obtain more detailed usage information.</p>
+
+<p>You must invoke the DSDL compiler during your build process before compiling your application and/or the library.
+For example, if you are using Make, a possible way to invoke the DSDL compiler is as follows:</p>
+
+<div class="language-make highlighter-rouge"><pre class="highlight"><code><span class="err">$(info</span> <span class="err">$(shell</span> <span class="err">$(LIBUAVCAN_DSDLC)</span> <span class="err">$(UAVCAN_DSDL_DIR)))</span>
+<span class="nv">UINCDIR</span> <span class="o">+=</span> dsdlc_generated
+</code></pre>
+</div>
+
+<p>For more information, refer to the examples specific to your target platform.</p>
