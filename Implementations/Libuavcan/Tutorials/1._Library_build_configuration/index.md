@@ -6,7 +6,7 @@ weight: 0
 
 Library build can be configured via C++ preprocessor definitions.
 All configuration options are listed and documented in the header file
-[`libuavcan/include/uavcan/build_config.hpp`](https://github.com/UAVCAN/libuavcan/blob/master/libuavcan/include/uavcan/build_config.hpp).
+[`libuavcan/include/uavcan/build_config.hpp`](https://github.com/DroneCAN/libuavcan/blob/master/libuavcan/include/uavcan/build_config.hpp).
 
 Note that all configuration options have either safe default values or autodetect settings;
 so, in most cases, it's not necessary to change them.

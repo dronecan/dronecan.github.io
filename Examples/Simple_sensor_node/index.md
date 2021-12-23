@@ -3,7 +3,7 @@
 
 # Simple sensor node
 
-This example is not based on any existing UAVCAN implementation -
+This example is not based on any existing DroneCAN implementation -
 it is completely standalone featuring zero third-party dependencies.
 
 ## Source code
@@ -14,7 +14,7 @@ it is completely standalone featuring zero third-party dependencies.
 
 ## Testing against libuavcan
 
-The following code can be used to test the node against the reference implementation of the UAVCAN stack.
+The following code can be used to test the node against the reference implementation of the DroneCAN stack.
 
 ```cpp
 {% include_relative libuavcan_airspeed_subscriber.cpp %}

@@ -1,5 +1,5 @@
 /*
- * This program is an example implementation of an extremely lightweight UAVCAN node with zero third-party dependencies.
+ * This program is an example implementation of an extremely lightweight DroneCAN node with zero third-party dependencies.
  * This example is based on Linux SocketCAN, but can be easily adapted to any other platform.
  *
  * GCC invocation command:
@@ -99,7 +99,7 @@ uint64_t get_monotonic_usec(void)
  */
 
 /*
- * UAVCAN transport layer
+ * DroneCAN transport layer
  */
 /// Arbitrary priority values
 static const uint8_t PRIORITY_HIGHEST = 0;

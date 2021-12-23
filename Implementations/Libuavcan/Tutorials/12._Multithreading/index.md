@@ -10,7 +10,7 @@ The reader must be familiar with the specification, particularly with the specif
 
 ## Motivation
 
-An application that runs a UAVCAN node is often required to run hard real-time UAVCAN-related processes
+An application that runs a DroneCAN node is often required to run hard real-time UAVCAN-related processes
 side by side with less time-critical ones.
 Making both co-exist in the same execution thread can be challenging because of radically different requirements
 and constraints.

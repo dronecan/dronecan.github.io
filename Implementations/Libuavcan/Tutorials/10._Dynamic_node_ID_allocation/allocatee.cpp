@@ -59,7 +59,7 @@ static std::array<std::uint8_t, 16> getUniqueID()
      *  - Instance ID (OPTIONAL), which allows to distinguish different instances of similarly named nodes
      *    running on the same Linux machine.
      *
-     * The reason we can't use the machine ID directly is that it wouldn't allow us to run more than one UAVCAN node
+     * The reason we can't use the machine ID directly is that it wouldn't allow us to run more than one DroneCAN node
      * on a given Linux system, as it would lead to multiple nodes having the same unique ID, which is prohibited.
      * The function makeApplicationID() works around that problem by means of extending the unique ID with a hash of
      * the name of the local node, which allows to run differently named nodes on the same Linux system without

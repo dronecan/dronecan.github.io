@@ -1,6 +1,6 @@
 /*
  * This program subscribes to airspeed messages using libuavcan, and prints them into stdout in YAML format.
- * It can be used to test alternative implementations of the UAVCAN stack against the reference implementation.
+ * It can be used to test alternative implementations of the DroneCAN stack against the reference implementation.
  *
  * GCC invocation command:
  *     g++ libuavcan_airspeed_subscriber.cpp -std=c++11 -lrt -luavcan
@@ -23,7 +23,7 @@ uavcan_linux::NodePtr initNode(const std::vector<std::string>& ifaces, uavcan::N
 
     if (node->start() < 0)
     {
-        throw std::runtime_error("Failed to start UAVCAN node");
+        throw std::runtime_error("Failed to start DroneCAN node");
     }
 
     node->setModeOperational();

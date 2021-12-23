@@ -13,7 +13,7 @@ Libuavcan is free to use for anyone under the terms of the MIT open source licen
 Libuavcan is implemented in two components:
 
 * Cross-platform **core**.
-This is the largest component that implements the entire UAVCAN stack in a platform-independent way.
+This is the largest component that implements the entire DroneCAN stack in a platform-independent way.
 * Platform-specific **drivers**.
 These are thin layers that adapt the core for a particular OS/architecture.
 Drivers are separated from the core by a few C++ interface classes.
@@ -45,7 +45,7 @@ exceptions if a fatal error occurs (e.g., unexpected null pointer, boundary chec
 * The source code is partially compliant with MISRA C++ 2008.
 * The code is unit tested and validated using strong static analysis tools.
 
-**The source code is available here: <https://github.com/UAVCAN/libuavcan>.**
+**The source code is available here: <https://github.com/DroneCAN/libuavcan>.**
 
 ## Build dependencies
 

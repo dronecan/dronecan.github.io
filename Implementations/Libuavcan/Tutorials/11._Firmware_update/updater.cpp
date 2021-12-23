@@ -136,7 +136,7 @@ class ExampleFirmwareVersionChecker final : public uavcan::IFirmwareVersionCheck
 
         /*
          * The current implementation of FirmwareUpdateTrigger imposes a limitation on the maximum length of
-         * the firmware file path: it must not exceed 40 characters. This is NOT a limitation of UAVCAN itself.
+         * the firmware file path: it must not exceed 40 characters. This is NOT a limitation of DroneCAN itself.
          *
          * The firmware file name format we're currently using may procude names that exceed the length limitation,
          * therefore we need to work around that. We do so by means of computing a hash (CRC64 in this example, but

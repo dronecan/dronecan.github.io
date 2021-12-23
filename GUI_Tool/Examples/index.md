@@ -12,8 +12,8 @@ although some minor modifications may be required.
 
 ## Generating audiovisual feedback
 
-Some nodes support UAVCAN messages from the namespace `uavcan.indication.*`
-that allow one to generate arbitrary indications on remote UAVCAN nodes.
+Some nodes support DroneCAN messages from the namespace `uavcan.indication.*`
+that allow one to generate arbitrary indications on remote DroneCAN nodes.
 Here’s how this feature can be invoked from the interactive console of the DroneCAN GUI Tool:
 
 ```python

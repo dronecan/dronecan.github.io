@@ -5,7 +5,7 @@ weight: 20
 # Libuavcan platforms
 
 In the context of Libuavcan, a *platform* is a particular hardware platform or an operating system that can
-execute libuavcan-based UAVCAN nodes.
+execute libuavcan-based DroneCAN nodes.
 For example, the STM32 microcontroller family and the GNU/Linux OS are some of the officially supported
 libuavcan platforms.
 
@@ -24,7 +24,7 @@ Essentially, a libuavcan driver is a set of C++ classes implementing the followi
 * `uavcan::ISystemClock`
 
 The interfaces listed above are defined in
-[`libuavcan/include/uavcan/driver/`](https://github.com/UAVCAN/libuavcan/blob/master/libuavcan/include/uavcan/driver).
+[`libuavcan/include/uavcan/driver/`](https://github.com/DroneCAN/libuavcan/blob/master/libuavcan/include/uavcan/driver).
 
 Note that the library core already includes a non-blocking prioritized TX queue, so normally a driver should not
 implement a software TX queue itself.
@@ -49,14 +49,14 @@ Contributions adding support for new platforms are always welcome.
 ## Officially supported platforms
 
 Official platform drivers are located in dedicated repositories here:
-[github.com/UAVCAN](https://github.com/UAVCAN).
+[github.com/DroneCAN](https://github.com/DroneCAN).
 Contributions adding support for new platforms are always welcome.
 
 Please refer to the platform driver source repositories for relevant documentation:
 
-* [STM32](https://github.com/UAVCAN/libuavcan_stm32)
-* [GNU/Linux](https://github.com/UAVCAN/libuavcan_linux)
-* [NXP LPC11C24](https://github.com/UAVCAN/libuavcan_lpc11c24)
+* [STM32](https://github.com/DroneCAN/libuavcan_stm32)
+* [GNU/Linux](https://github.com/DroneCAN/libuavcan_linux)
+* [NXP LPC11C24](https://github.com/DroneCAN/libuavcan_lpc11c24)
 
 ## POSIX helpers
 

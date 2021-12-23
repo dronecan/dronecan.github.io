@@ -1,5 +1,5 @@
 /*
- * This demo shows how to implement a multi-threaded UAVCAN node with libuavcan.
+ * This demo shows how to implement a multi-threaded DroneCAN node with libuavcan.
  *
  * The main thread is publishing KeyValue messages, simulating a hard real-time task.
  *

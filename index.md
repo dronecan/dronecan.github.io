@@ -17,7 +17,7 @@ proposed introduction of the UAVCAN v1 protocol involved changes to
 UAVCAN that increased complexity and did not offer a smooth migration
 path for existing deployments. After extended discussions within the
 UAVCAN consortium it was decided that the best solution was to
-continue development of UAVCAN v0 under the name DroneCAN.
+continue development of DroneCAN v0 under the name DroneCAN.
 
 ## Key Features
 

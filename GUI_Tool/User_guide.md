@@ -59,7 +59,7 @@ The above layout defines the following custom data types:
 ## Interactive Console
 
 The application embeds an IPython console (running Python 3.4 or newer)
-that provides the user with access to the application's own UAVCAN node.
+that provides the user with access to the application's own DroneCAN node.
 
 As the application is built on [PyDroneCAN](/Implementations/PyDroneCAN),
 all features of the library are avaiable to the user via the interactive shell.
@@ -130,6 +130,6 @@ All periodic processes, along with all subscriptions, can be stopped by executin
 
 DroneCAN GUI Tool provides a bunch of other features,
 which are considered self-documenting and therefore not described here.
-If you find that not true, please [file a ticket](https://github.com/UAVCAN/gui_tool)
-or [contribute to this documentation](https://github.com/UAVCAN/uavcan.github.io).
+If you find that not true, please [file a ticket](https://github.com/DroneCAN/gui_tool)
+or [contribute to this documentation](https://github.com/DroneCAN/dronecan.github.io).
 
