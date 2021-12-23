@@ -78,6 +78,10 @@ fill in the [application form](https://dronecan.org/apply)
   <tr>
     <td><img src="image/qiotek.png" alt="Qiotek" width="256px"></td>
     <td><img src="image/Sierra.png" alt="Sierra" width="256px"></td>
+    <td><img src="image/BFDsystemSHOPy.png" alt="BFD" width="256px"></td>
+   </tr>
+  <tr>
+    <td><img src="image/holybro.png" alt="Holybro" width="256px"></td>
    </tr>
 </table>
 
