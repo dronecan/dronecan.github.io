@@ -20,6 +20,9 @@ It runs on Windows, Linux, and OSX.
 * Firmware update on remote nodes.
 * Python scripting from the embedded IPython console.
 * Different CAN adapter backends supported:
+  * ArduPilot
+    [SLCAN on USB](https://ardupilot.org/copter/docs/common-slcan-f7h7.html)
+    using the 2nd USB endpoint on F7 and H7 flight controllers
   * SLCAN (aka LAWICEL) adapters, e.g. [Zubax Babel](https://zubax.com/products/babel).
   * Linux [SocketCAN](https://en.wikipedia.org/wiki/SocketCAN).
 
@@ -41,7 +44,7 @@ Note that if you're using a USB SLCAN adapter, it may be necessary to
 
 sudo apt-get install -y python3-pip python3-setuptools python3-wheel
 sudo apt-get install -y python3-numpy python3-pyqt5 python3-pyqt5.qtsvg git-core
-sudo pip3 install pydronecan
+sudo pip3 install dronecan
 sudo pip3 install git+https://github.com/DroneCAN/gui_tool@master
 ```
 
