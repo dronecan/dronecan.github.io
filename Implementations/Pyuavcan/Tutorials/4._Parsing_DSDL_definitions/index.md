@@ -41,13 +41,13 @@ Put this code into a file in the current directory:
 
 ```python
 #
-# Pyuavcan DSDL parser demo.
+# PyDroneCAN DSDL parser demo.
 # Read the package docstrings for details.
 #
 
-# pyuavcan supports Python 2.7 and Python 3.x
+# pydronecan supports Python 2.7 and Python 3.x
 from __future__ import print_function
-from uavcan import dsdl
+from dronecan import dsdl
 
 # Root namespace directories:
 NAMESPACE_DIRS = ['namespace_a/', 'namespace_b/']
@@ -84,7 +84,7 @@ for t in types:
         print_attributes(t.response_fields, t.response_constants)
 ```
 
-Make sure the Pyuavcan package is installed, then run the script.
+Make sure the PyDroneCAN package is installed, then run the script.
 The output should look like this:
 
 ```
@@ -101,4 +101,4 @@ namespace_b.Bar
 ```
 
 For a real world usage example it's recommended to refer to Libuavcan,
-which implements a DSDL compiler based on the DSDL parsing module from Pyuavcan.
+which implements a DSDL compiler based on the DSDL parsing module from PyDroneCAN.

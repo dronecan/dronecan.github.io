@@ -3,10 +3,10 @@
 
 # Examples
 
-This page collects some interesting or instructional use cases of the UAVCAN GUI Tool.
+This page collects some interesting or instructional use cases of the DroneCAN GUI Tool.
 
-Since the GUI Tool is built on top of Pyuavcan,
-you should also [check out its examples](/Implementations/Pyuavcan/Examples/) -
+Since the GUI Tool is built on top of PyDroneCAN,
+you should also [check out its examples](/Implementations/PyDroneCAN/Examples/) -
 they are mostly compatible with the GUI Tool's embedded IPython console,
 although some minor modifications may be required.
 
@@ -14,7 +14,7 @@ although some minor modifications may be required.
 
 Some nodes support UAVCAN messages from the namespace `uavcan.indication.*`
 that allow one to generate arbitrary indications on remote UAVCAN nodes.
-Here’s how this feature can be invoked from the interactive console of the UAVCAN GUI Tool:
+Here’s how this feature can be invoked from the interactive console of the DroneCAN GUI Tool:
 
 ```python
 # Beeping at 1kHz for 0.1 seconds

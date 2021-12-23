@@ -3,7 +3,7 @@
 
 # ESC throttle control
 
-This example script demonstrates how to control ESC throttle setpoint using the Pyuavcan library.
+This example script demonstrates how to control ESC throttle setpoint using the PyDroneCAN library.
 Before running the script, make sure that no other node on the bus issues contradictory ESC commands concurrently.
 
 ## Writing the script
@@ -31,13 +31,13 @@ power_rating_pct: 13
 esc_index: 3
 ```
 
-## Using the UAVCAN GUI Tool
+## Using the DroneCAN GUI Tool
 
 It is also possible to run the above script (with minor modifications)
-directly from the interactive console of the [UAVCAN GUI Tool](/GUI_Tool),
-because the UAVCAN GUI Tool is built on top of Pyuavcan.
+directly from the interactive console of the [DroneCAN GUI Tool](/GUI_Tool),
+because the DroneCAN GUI Tool is built on top of PyDroneCAN.
 In that case you won’t need to create a new node yourself in the script - just use the application’s own node,
 it is accessible from the interactive console.
-For details, please read the documentation of the UAVCAN GUI Tool.
+For details, please read the documentation of the DroneCAN GUI Tool.
 
-{% include lightbox.html url="/Implementations/Pyuavcan/Examples/ESC_throttle_control/uavcan_gui_tool.png" title="UAVCAN GUI Tool running this example script" %}
+{% include lightbox.html url="/Implementations/PyDroneCAN/Examples/ESC_throttle_control/uavcan_gui_tool.png" title="DroneCAN GUI Tool running this example script" %}

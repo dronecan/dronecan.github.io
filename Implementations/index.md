@@ -7,7 +7,7 @@ weight: 20
 This section contains documentation for existing reference implementations of UAVCAN.
 
 * [Libuavcan](/Implementations/Libuavcan) - portable reference implementation in C++ for embedded systems and Linux.
-* [Pyuavcan](/Implementations/Pyuavcan) - UAVCAN protocol stack and DSDL parser implemented in pure Python.
+* [PyDroneCAN](/Implementations/PyDroneCAN) - UAVCAN protocol stack and DSDL parser implemented in pure Python.
 * [Libcanard](/Implementations/Libcanard) - minimal implementation in C suitable for deeply embedded systems and
 resource constrained applications.
 * [AP_Periph](/Implementations/AP_Periph) - A DroneCAN peripheral node toolkit

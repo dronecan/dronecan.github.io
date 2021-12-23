@@ -1,9 +1,9 @@
 ---
 ---
 
-# Pyuavcan examples
+# PyDroneCAN examples
 
-This directory contains a collection of hands-on examples of applications and scripts that employ Pyuavcan.
+This directory contains a collection of hands-on examples of applications and scripts that employ PyDroneCAN.
 All examples should be run with Python 3.5 or newer, unless specifically noted otherwise.
 
 ## Prerequisites

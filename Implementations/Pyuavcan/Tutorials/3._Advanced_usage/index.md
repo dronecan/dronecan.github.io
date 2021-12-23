@@ -3,10 +3,10 @@
 
 # Advanced usage
 
-This article provides a brief overview of some of the more advanced features of Pyuavcan.
+This article provides a brief overview of some of the more advanced features of PyDroneCAN.
 It does not aim to provide an exhaustive user guide; for that you should refer to the
 Python's help system (the function `help()`) and to the source code,
-particularly to the sub-package `uavcan.app`.
+particularly to the sub-package `dronecan.app`.
 
 The examples below assume that the local node instance is bound to the variable `node`,
 unless stated otherwise.
@@ -14,7 +14,7 @@ unless stated otherwise.
 ## Bus monitoring
 
 IO hooks allow the application to monitor all incoming and outgoing CAN frames.
-The Bus Monitor feature of the GUI Tool is based on this capability of Pyuavcan.
+The Bus Monitor feature of the GUI Tool is based on this capability of PyDroneCAN.
 
 ```python
 def frame_hook(direction, frame):
@@ -37,11 +37,11 @@ File server can be used to perform firmware update on remote nodes,
 as well as for general purpose file exchange.
 
 ```python
-import uavcan
+import dronecan
 
 # File server need to be provided with file lookup pathes.
 # These can be directories or files.
-file_server = uavcan.app.file_server.FileServer(node, ['/home/pavel'])
+file_server = dronecan.app.file_server.FileServer(node, ['/home/pavel'])
 file_server.lookup_paths.append('/etc/fstab')
 
 print(file_server.lookup_paths)
@@ -74,14 +74,14 @@ def _try_resolve_relative_path(lookup_paths, rel_path):
 ## Dynamic node ID allocation
 
 The logic pertaining to the dynamic node ID allocation feature is located in the module
-`uavcan.app.dynamic_node_id`.
+`dronecan.app.dynamic_node_id`.
 The code below demonstrates how to run an instance of a centralized node ID allocator.
 
 ```python
-node_monitor = uavcan.app.node_monitor.NodeMonitor(node)
+node_monitor = dronecan.app.node_monitor.NodeMonitor(node)
 # It is NOT necessary to specify the database storage.
 # If it is not specified, the allocation table will be kept in memory, thus it will not be persistent.
-allocator = uavcan.app.dynamic_node_id.CentralizedServer(node, node_monitor,
+allocator = dronecan.app.dynamic_node_id.CentralizedServer(node, node_monitor,
                                                          database_storage='/home/pavel/allocation_table.db')
 
 # The allocator and the node monitor will be running in the background, requiring no additional attention

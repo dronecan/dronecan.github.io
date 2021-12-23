@@ -3,11 +3,11 @@
 
 # Basic usage
 
-This tutorial will walk you through the basic usage of Pyuavcan.
+This tutorial will walk you through the basic usage of PyDroneCAN.
 It is intended for execution in an interactive shell of Python 3.4 or newer.
-While Pyuavcan supports Python 2.7, its use is strongly discouraged.
+While PyDroneCAN supports Python 2.7, its use is strongly discouraged.
 
-It is recommended to keep a running instance of the [UAVCAN GUI Tool](/GUI_Tool) on the same bus
+It is recommended to keep a running instance of the [DroneCAN GUI Tool](/GUI_Tool) on the same bus
 while trying the examples below.
 If you're working on Linux, consider using a virtual CAN interface for experimenting.
 
@@ -19,8 +19,8 @@ For that, use the Python's help system (function `help()`), or read the code.
 Start a Python 3 shell and run this:
 
 ```python
-import uavcan
-node = uavcan.make_node('/dev/ttyACM0')
+import dronecan
+node = dronecan.make_node('/dev/ttyACM0')
 ```
 
 This will create a node connected to the SLCAN interface `/dev/ttyACM0`,
@@ -32,17 +32,17 @@ if the interface is named in the form of `can0`, the library will select SocketC
 A more useful node instantiation example is shown below:
 
 ```python
-import uavcan
+import dronecan
 
 # Instantiating an instance of standard service type uavcan.protocol.GetNodeInfo
 # Here we need the response data structure, which is why we use the factory Response()
 node_info = uavcan.protocol.GetNodeInfo.Response()
-node_info.name = 'org.uavcan.pyuavcan_demo'
+node_info.name = 'org.uavcan.pydronecan_demo'
 node_info.software_version.major = 1
 node_info.hardware_version.unique_id = b'12345' # Setting first 5 bytes; rest will be kept zero
 # Fill other fields as necessary...
 
-node = uavcan.make_node('vcan0',
+node = dronecan.make_node('vcan0',
                         node_id=123,          # Setting the node ID 123
                         node_info=node_info)  # Setting node info
 
@@ -97,14 +97,14 @@ When you're finished with the node, don't forget to call `close()` on it; better
 
 ```python
 from contextlib import closing
-with closing(uavcan.driver.make_node('/dev/ttyACM0', bitrate=1000000)) as node:
+with closing(dronecan.driver.make_node('/dev/ttyACM0', bitrate=1000000)) as node:
     # Do some work here...
 # When control reaches the end of the with block, the node will be properly finalized
 ```
 
 ## Invoking callbacks from the node thread
 
-{% include lightbox.html url="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_node_info.png" title="Test node as seen from GUI Tool" thumbnail=true %}
+{% include lightbox.html url="/Implementations/PyDroneCAN/Tutorials/2._Basic_usage/gui_tool_node_info.png" title="Test node as seen from GUI Tool" thumbnail=true %}
 
 In order to keep the node running in the background while having the shell available for
 input, let's spawn a thread and dispatch it into the `spin()` method.
@@ -116,7 +116,7 @@ import threading
 threading.Thread(target=node.spin, daemon=True).start()
 ```
 
-It is recommended to launch the UAVCAN GUI tool now to make sure that the node can be seen online.
+It is recommended to launch the DroneCAN GUI tool now to make sure that the node can be seen online.
 
 Now we'll see how to invoke callbacks once or periodically from the node thread:
 
@@ -176,7 +176,7 @@ def node_status_callback(event):
     print('Node uptime:', event.message.uptime_sec, 'seconds')
     # Messages, service requests, service responses, and entire events
     # can be converted into YAML formatted data structure using to_yaml():
-    print(uavcan.to_yaml(event))
+    print(dronecan.to_yaml(event))
 
 # Subscribing to messages uavcan.protocol.NodeStatus
 handle = node.add_handler(uavcan.protocol.NodeStatus, node_status_callback)
@@ -187,7 +187,7 @@ handle.remove()
 
 ### Timestamping
 
-It should be noted that Pyuavcan goes at great lengths to obtain precise timestamps
+It should be noted that PyDroneCAN goes at great lengths to obtain precise timestamps
 of the received CAN frames, and, by extension, UAVCAN transfers (both messages and services).
 The exact method of timestamp estimation depends on the backend,
 so the most valid information can be obtained by looking at the source code of the backend of interest.
@@ -208,14 +208,14 @@ the local monotonic (see `time.monotonic()`) and real (see `time.time()`) domain
 
 ## Publishing messages to the bus
 
-Pyuavcan supports different of ways to assign values to fields of DSDL data structures.
+PyDroneCAN supports different of ways to assign values to fields of DSDL data structures.
 Using the type constructors:
 
 * `uavcan.protocol.debug.KeyValue(key='this is key', value=123.456)`
 * `uavcan.protocol.param.GetSet.Request(name='foobar')`
 * `uavcan.protocol.param.GetSet.Response(value=uavcan.protocol.param.Value(integer_value=123))`
 
-{% include lightbox.html url="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_bus_monitor_publishing.png" title="Broadcasts as seen from GUI Tool" thumbnail=true %}
+{% include lightbox.html url="/Implementations/PyDroneCAN/Tutorials/2._Basic_usage/gui_tool_bus_monitor_publishing.png" title="Broadcasts as seen from GUI Tool" thumbnail=true %}
 
 Values that are not specified in the constructor are zero initialized by default.
 
@@ -258,7 +258,7 @@ node.request(uavcan.protocol.GetNodeInfo.Request(), 126, response_callback)
 
 ## Responding to services
 
-{% include lightbox.html url="/Implementations/Pyuavcan/Tutorials/2._Basic_usage/gui_tool_restart.png" title="Sending restart requests from GUI Tool" thumbnail=true %}
+{% include lightbox.html url="/Implementations/PyDroneCAN/Tutorials/2._Basic_usage/gui_tool_restart.png" title="Sending restart requests from GUI Tool" thumbnail=true %}
 
 ```python
 def handle_node_restart_request(event):
@@ -278,7 +278,7 @@ node.add_handler(uavcan.protocol.RestartNode, handle_node_restart_request)
 
 ## Using Vendor-Specific DSDL Definitions
 
-Pyuavcan will automatically scan the directory `~/uavcan_vendor_specific_types` for vendor-specific data types,
+PyDroneCAN will automatically scan the directory `~/dronecan_vendor_specific_types` for vendor-specific data types,
 where `~` stands for the home directory of the current user, e.g. `/home/joe` or `C:\Users\Joe`.
 Consider the following directory layout:
 

@@ -1,12 +1,12 @@
 ---
 ---
 
-# Pyuavcan tutorials
+# PyDroneCAN tutorials
 
 Tutorials are arranged in ascending order of difficulty and descending order of importance.
 
 Besides these tutorials, it is also recommended to refer to the sources of the
-[UAVCAN GUI Tool](/GUI_Tool), which is based on Pyuavcan.
+[DroneCAN GUI Tool](/GUI_Tool), which is based on PyDroneCAN.
 
 ## Prerequisites
 
@@ -16,10 +16,10 @@ Besides these tutorials, it is also recommended to refer to the sources of the
 
 ## Installation
 
-Install pyuavcan via pip:
+Install pydronecan via pip:
 
 ```sh
-pip install uavcan
+pip install dronecan
 ```
 
 ## License

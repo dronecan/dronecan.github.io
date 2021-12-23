@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import uavcan, time
+import dronecan, time
 
 
 # Waiting until new nodes stop appearing online.
@@ -18,7 +18,7 @@ def wait_for_all_nodes_to_become_online():
 
 # Determining how many ESC nodes are present.
 # In real use cases though the number of ESC should be obtained from elsewhere, e.g. from control mixer settings.
-# There is a helper class in PyUAVCAN that allows one to automate what we're doing here,
+# There is a helper class in PyDroneCAN that allows one to automate what we're doing here,
 # but we're not using it for the purposes of greater clarity of what's going on on the protocol level.
 def detect_esc_nodes():
     esc_nodes = set()
@@ -46,7 +46,7 @@ def enumerate_all_esc(esc_nodes, timeout=60):
             raise Exception('Request timed out')
 
         if event.response.error != event.response.ERROR_OK:
-            raise Exception('Enumeration rejected\n' + uavcan.to_yaml(event))
+            raise Exception('Enumeration rejected\n' + dronecan.to_yaml(event))
 
         begin_responses_succeeded += 1
 
@@ -72,7 +72,7 @@ def enumerate_all_esc(esc_nodes, timeout=60):
             if event.transfer.source_node_id in enumerated_nodes:
                 print('Indication callback from node %d ignored - already enumerated' % event.transfer.source_node_id)
             else:
-                print(uavcan.to_yaml(event))
+                print(dronecan.to_yaml(event))
                 received_indication = event
 
         indication_handler = node.add_handler(uavcan.protocol.enumeration.Indication, indication_callback)
@@ -104,7 +104,7 @@ def enumerate_all_esc(esc_nodes, timeout=60):
 
             assert event.response.name == received_indication.message.parameter_name
             assert event.response.value.integer_value == next_index
-            print(uavcan.to_yaml(event))
+            print(dronecan.to_yaml(event))
             node.request(uavcan.protocol.param.ExecuteOpcode.Request(
                              opcode=uavcan.protocol.param.ExecuteOpcode.Request().OPCODE_SAVE),
                          target_node_id,
@@ -115,9 +115,9 @@ def enumerate_all_esc(esc_nodes, timeout=60):
             if not event:
                 raise Exception('Request timed out')
 
-            print(uavcan.to_yaml(event))
+            print(dronecan.to_yaml(event))
             if not event.response.ok:
-                raise Exception('Param opcode execution rejected\n' + uavcan.to_yaml(event))
+                raise Exception('Param opcode execution rejected\n' + dronecan.to_yaml(event))
             else:
                 configuration_finished = True
 
@@ -138,15 +138,15 @@ def enumerate_all_esc(esc_nodes, timeout=60):
 
 
 if __name__ == '__main__':
-    # Initializing a UAVCAN node instance.
+    # Initializing a DroneCAN node instance.
     # In this example we're using an SLCAN adapter on the port '/dev/ttyACM0'.
-    # PyUAVCAN also supports other types of adapters, refer to its docs to learn more.
-    node = uavcan.make_node('/dev/ttyACM0', node_id=10, bitrate=1000000)
+    # PyDroneCAN also supports other types of adapters, refer to its docs to learn more.
+    node = dronecan.make_node('/dev/ttyACM0', node_id=10, bitrate=1000000)
 
     # Initializing a dynamic node ID allocator.
     # This would not be necessary if the nodes were configured to use static node ID.
-    node_monitor = uavcan.app.node_monitor.NodeMonitor(node)
-    dynamic_node_id_allocator = uavcan.app.dynamic_node_id.CentralizedServer(node, node_monitor)
+    node_monitor = dronecan.app.node_monitor.NodeMonitor(node)
+    dynamic_node_id_allocator = dronecan.app.dynamic_node_id.CentralizedServer(node, node_monitor)
 
     print('Waiting for all nodes to appear online, this should take less than a minute...')
     wait_for_all_nodes_to_become_online()

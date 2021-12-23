@@ -3,18 +3,18 @@
 
 # Setup
 
-This tutorial covers the basic setup of Pyuavcan.
+This tutorial covers the basic setup of PyDroneCAN.
 
-Pyuavcan is designed to be as platform-independent as possible.
+PyDroneCAN is designed to be as platform-independent as possible.
 It has been successfully tested under Linux, Windows, and OSX,
 but its portability should not be restricted only to these platforms.
 
 ## Installation
 
-It is recommended to use PIP to install Pyuavcan:
+It is recommended to use PIP to install PyDroneCAN:
 
 ```bash
-pip install uavcan
+pip install dronecan
 ```
 
 If your operating system has both Python 2.7 and Python 3,
@@ -23,10 +23,10 @@ Sometimes the PIP executable is not available at all,
 in which case you should resort to the below command:
 
 ```bash
-python -m pip install uavcan
+python -m pip install dronecan
 ```
 
-Pyuavcan requires no external dependencies, except for PySerial if SLCAN support is required (more on this below).
+PyDroneCAN requires no external dependencies, except for PySerial if SLCAN support is required (more on this below).
 
 ## CAN hardware backends
 
@@ -45,7 +45,7 @@ SLCAN is a simple quasi-standard protocol that allows to transfer CAN frames and
 CAN adapter commands and status information via a serial port link
 (most often it's USB CDC ACM virtual serial port).
 Many different vendors manufacture SLCAN-compatible CAN adapters.
-Pyuavcan has been successfully tested at least with the following models:
+PyDroneCAN has been successfully tested at least with the following models:
 
 * [Zubax Babel](https://zubax.com/products/babel)
 * Thiemar muCAN
@@ -75,7 +75,7 @@ For SocketCAN adapter configuration, please refer to the documentation that
 came with your adapter. Once you have configured the adapter, it will be
 available via a specific network interface name, e.g. `can0`.
 
-It is also possible to use Pyuavcan with virtual CAN interfaces.
+It is also possible to use PyDroneCAN with virtual CAN interfaces.
 A virtual SocketCAN interface can be brought up using the following commands as root:
 
 ```bash

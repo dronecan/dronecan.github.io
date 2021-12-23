@@ -4,11 +4,11 @@ permalink: /GUI_Tool/User_guide/
 
 # User guide
 
-This article provides a brief overview of the main capabilities of the UAVCAN GUI Tool.
+This article provides a brief overview of the main capabilities of the DroneCAN GUI Tool.
 
 ## Supported CAN adapters
 
-UAVCAN GUI Tool is based on PyUAVCAN, which at the moment supports at least the following hardware backends.
+DroneCAN GUI Tool is based on PyDroneCAN, which at the moment supports at least the following hardware backends.
 
 ### SLCAN (LAWICEL) compatible adapters
 
@@ -20,7 +20,7 @@ The following adapters have been tested so far and are guaranteed to work:
 * Thiemar muCAN
 * VSCOM USB-CAN
 
-Any other SLCAN adapter should also work with UAVCAN GUI Tool without issues.
+Any other SLCAN adapter should also work with DroneCAN GUI Tool without issues.
 
 ### Linux SocketCAN
 
@@ -32,11 +32,11 @@ It has been tested with the following adapters:
 * [Zubax Babel](https://zubax.com/products/babel) (via SLCAN bridge)
 * Virtual CAN interface
 
-Any other adapter supported by SocketCAN should also work with UAVCAN GUI Tool without issues.
+Any other adapter supported by SocketCAN should also work with DroneCAN GUI Tool without issues.
 
 ## Using Vendor-Specific DSDL Definitions
 
-The UAVCAN GUI Tool is based on PyUAVCAN,
+The DroneCAN GUI Tool is based on PyDroneCAN,
 which will automatically scan the directory `~/uavcan_vendor_specific_types` for vendor-specific data types,
 where `~` stands for the home directory of the current user, e.g. `/home/joe` or `C:\Users\Joe`.
 Consider the following directory layout:
@@ -61,7 +61,7 @@ The above layout defines the following custom data types:
 The application embeds an IPython console (running Python 3.4 or newer)
 that provides the user with access to the application's own UAVCAN node.
 
-As the application is built on [PyUAVCAN](/Implementations/Pyuavcan),
+As the application is built on [PyDroneCAN](/Implementations/PyDroneCAN),
 all features of the library are avaiable to the user via the interactive shell.
 
 The application exposes a few convenience functions and objects, which are listed at the top of the console
@@ -128,7 +128,7 @@ All periodic processes, along with all subscriptions, can be stopped by executin
 
 ## Bus Monitor, Plotter, etc
 
-UAVCAN GUI Tool provides a bunch of other features,
+DroneCAN GUI Tool provides a bunch of other features,
 which are considered self-documenting and therefore not described here.
 If you find that not true, please [file a ticket](https://github.com/UAVCAN/gui_tool)
 or [contribute to this documentation](https://github.com/UAVCAN/uavcan.github.io).
