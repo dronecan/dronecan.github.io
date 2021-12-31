@@ -29,7 +29,8 @@
 
 		td {
 			padding: 0.15em 0.75em;
-		}
+                        vertical-align: middle;
+                }
 
 		th {
 			padding: 0 0.75em 0.15em 0.75em;
@@ -37,7 +38,7 @@
 			font-size: 0.9em;
 			font-family: _font(family-heading);
 			font-weight: _font(weight-heading-bold);
-			vertical-align: bottom;
+                        vertical-align: middle;
 		}
 
 		thead {

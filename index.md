@@ -56,33 +56,33 @@ fill in the [application form](https://dronecan.org/apply)
 
 <table style="padding:10px">
   <tr>
-    <td><img src="image/ArduPilot2.png" alt="ArduPilot" width="256px"></td>
-    <td><img src="image/px4.png" alt="PX4" width="256px"></td>
-    <td><img src="image/Currawong.png" alt="Currawong" width="256px"></td>
+    <td><a href="https://ardupilot.org" target="_blank"><img src="image/ArduPilot2.png" alt="ArduPilot" width="256px"></a></td>
+    <td><a href="https://px4.io" target="_blank"><img src="image/px4.png" alt="PX4" width="256px"></a></td>
+    <td><a href="https://www.currawongeng.com/" target="_blank"><img src="image/Currawong.png" alt="Currawong" width="256px"></a></td>
    </tr>
   <tr>
-    <td><img src="image/Cubepilot.png" alt="Cubepilot" width="256px"></td>
-    <td><img src="image/ARK.png" alt="ARK" width="256px"></td>
-    <td><img src="image/Hitec.png" alt="Hitec" width="256px"></td>
+    <td><a href="https://cubepilot.org/" target="_blank"><img src="image/Cubepilot.png" alt="Cubepilot" width="256px"></a></td>
+    <td><a href="https://arkelectron.com/" target="_blank"><img src="image/ARK.png" alt="ARK" width="256px"></a></td>
+    <td><a href="https://hitecnology.com/" target="_blank"><img src="image/Hitec.png" alt="Hitec" width="256px"></a></td>
    </tr>
   <tr>
-    <td><img src="image/mRo.png" alt="mRo" width="256px"></td>
-    <td><img src="image/kraus.png" alt="Kraus" width="256px"></td>
-    <td><img src="image/WurzbachElectronics.jpg" alt="WurzbachElectronics" width="256px"></td>
+    <td><a href="https://mrobotics.io/" target="_blank"><img src="image/mRo.png" alt="mRo" width="256px"></a></td>
+    <td><a href="https://krausaerospace.com/" target="_blank"><img src="image/kraus.png" alt="Kraus" width="256px"></a></td>
+    <td><a href="https://wurzbachelectronics.com/" target="_blank"><img src="image/WurzbachElectronics.jpg" alt="WurzbachElectronics" width="256px"></a></td>
    </tr>
   <tr>
-    <td><img src="image/SpektreWorks.png" alt="SpektreWorks" width="256px"></td>
-    <td><img src="image/mateksys.png" alt="Matek" width="256px"></td>
-    <td><img src="image/cuav.png" alt="CUAV" width="256px"></td>
+    <td><a href="https://www.spektreworks.com/" target="_blank"><img src="image/SpektreWorks.png" alt="SpektreWorks" width="256px"></a></td>
+    <td><a href="https://www.mateksys.com/" target="_blank"><img src="image/mateksys.png" alt="Matek" width="256px"></a></td>
+    <td><a href="https://www.cuav.net/" target="_blank"><img src="image/cuav.png" alt="CUAV" width="256px"></a></td>
    </tr>
   <tr>
-    <td><img src="image/qiotek.png" alt="Qiotek" width="256px"></td>
-    <td><img src="image/Sierra.png" alt="Sierra" width="256px"></td>
-    <td><img src="image/BFDsystemSHOPy.png" alt="BFD" width="256px"></td>
+    <td><a href="https://www.qio-tek.com/" target="_blank"><img src="image/qiotek.png" alt="Qiotek" width="256px"></a></td>
+    <td><a href="https://www.linkedin.com/company/sierraaerospace/" target="_blank"><img src="image/Sierra.png" alt="Sierra" width="256px"></a></td>
+    <td><a href="https://www.bfdsystems.com/" target="_blank"><img src="image/BFDsystemSHOPy.png" alt="BFD" width="256px"></a></td>
    </tr>
   <tr>
-    <td><img src="image/holybro.png" alt="Holybro" width="256px"></td>
-    <td><img src="image/zeus.png" alt="Zeus" width="256px"></td>
+    <td><a href="http://www.holybro.com/" target="_blank"><img src="image/holybro.png" alt="Holybro" width="256px"></a></td>
+    <td><a href="https://www.zeus-actuators.com/" target="_blank"><img src="image/zeus.png" alt="Zeus" width="256px"></a></td>
    </tr>
 </table>
 
