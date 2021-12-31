@@ -82,6 +82,7 @@ fill in the [application form](https://dronecan.org/apply)
    </tr>
   <tr>
     <td><img src="image/holybro.png" alt="Holybro" width="256px"></td>
+    <td><img src="image/zeus.png" alt="Zeus" width="256px"></td>
    </tr>
 </table>
 
