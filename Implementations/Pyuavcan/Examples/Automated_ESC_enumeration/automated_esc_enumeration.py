@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
 
 import dronecan, time
+from dronecan import uavcan
 
-
-# Waiting until new nodes stop appearing online.
-# That would mean that all nodes that are connected to the bus are now online and ready to work.
-def wait_for_all_nodes_to_become_online():
-    num_nodes = 0
-    while True:
-        node.spin(timeout=10)
-        new_num_nodes = len(dynamic_node_id_allocator.get_allocation_table())
-        if new_num_nodes == num_nodes and num_nodes > 1:
-            break
-
-        num_nodes = new_num_nodes
-
+# get command line arguments
+from argparse import ArgumentParser
+parser = ArgumentParser(description='ESC enumeration example')
+parser.add_argument("--bitrate", default=1000000, type=int, help="CAN bit rate")
+parser.add_argument("--node-id", default=100, type=int, help="CAN node ID")
+parser.add_argument("--dna-server", action='store_true', default=False, help="run DNA server")
+parser.add_argument("port", default=None, type=str, help="serial port")
+args = parser.parse_args()
 
 # Determining how many ESC nodes are present.
 # In real use cases though the number of ESC should be obtained from elsewhere, e.g. from control mixer settings.
@@ -137,24 +133,26 @@ def enumerate_all_esc(esc_nodes, timeout=60):
     return enumerated_nodes
 
 
-if __name__ == '__main__':
-    # Initializing a DroneCAN node instance.
-    # In this example we're using an SLCAN adapter on the port '/dev/ttyACM0'.
-    # PyDroneCAN also supports other types of adapters, refer to its docs to learn more.
-    node = dronecan.make_node('/dev/ttyACM0', node_id=10, bitrate=1000000)
+# Initializing a DroneCAN node instance.
+node = dronecan.make_node(args.port, node_id=args.node_id, bitrate=args.bitrate)
 
-    # Initializing a dynamic node ID allocator.
-    # This would not be necessary if the nodes were configured to use static node ID.
-    node_monitor = dronecan.app.node_monitor.NodeMonitor(node)
+# Initializing a node monitor
+node_monitor = dronecan.app.node_monitor.NodeMonitor(node)
+
+if args.dna_server:
+    # optionally start a DNA server
     dynamic_node_id_allocator = dronecan.app.dynamic_node_id.CentralizedServer(node, node_monitor)
 
-    print('Waiting for all nodes to appear online, this should take less than a minute...')
-    wait_for_all_nodes_to_become_online()
-    print('Online nodes:', [node_id for _, node_id in dynamic_node_id_allocator.get_allocation_table()])
+# Waiting for at least one other node to appear online
+while len(node_monitor.get_all_node_id()) <= 1:
+    print('Waiting for other nodes to become online...')
+    node.spin(timeout=1)
 
-    print('Detecting ESC nodes...')
-    esc_nodes = detect_esc_nodes()
-    print('ESC nodes:', esc_nodes)
+print("There are %u nodes online" % len(node_monitor.get_all_node_id()))
 
-    enumerated_esc = enumerate_all_esc(esc_nodes)
-    print('All ESC enumerated successfully; index order is as follows:', enumerated_esc)
+print('Detecting ESC nodes...')
+esc_nodes = detect_esc_nodes()
+print('ESC nodes:', esc_nodes)
+
+enumerated_esc = enumerate_all_esc(esc_nodes)
+print('All ESC enumerated successfully; index order is as follows:', enumerated_esc)
