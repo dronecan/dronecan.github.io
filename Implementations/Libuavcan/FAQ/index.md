@@ -52,9 +52,9 @@ If you're facing the following error message:
 ```
   File "dsdl_compiler/libuavcan_dsdlc", line 59, in <module>
     from libuavcan_dsdl_compiler import run as dsdlc_run
-  File "/home/jgoppert/git/libuavcan/libuavcan/dsdl_compiler/libuavcan_dsdl_compiler/__init__.py", line 17, in <module>
+  File "/home/XXXXX/libuavcan/libuavcan/dsdl_compiler/libuavcan_dsdl_compiler/__init__.py", line 17, in <module>
     from dronecan import dsdl
-ImportError: No module named uavcan
+ImportError: No module named dronecan
 ```
 
 Make sure that all git submodules are checked out and updated - use `git submodule update --init --recursive --force`.
