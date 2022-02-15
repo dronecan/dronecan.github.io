@@ -39,3 +39,12 @@ gem 'therubyracer'
 ```
 
 Then open the terminal and run `bundle update && bundle install`.
+
+## History
+
+Much of the content of this website is based upon original work by
+Pavel Kirienko and the UAVCAN Development Team. For contributors
+please see https://github.com/UAVCAN/uavcan.github.io
+
+The content is licensed under the Creative Commons Attribution License
+4.0. See https://creativecommons.org/licenses/by/4.0/ for details.
