@@ -7,21 +7,9 @@ layout: home
 
 DroneCAN is the primary CAN protocol used by the ArduPilot and PX4 projects for communication with CAN peripherals. It is an open protocol with open communication, specification and multiple open implementations.
 
-## Relationship with UAVCAN
-
-DroneCAN was created to continue the development of the widely used
-UAVCAN v0 protocol. This protocol has proven itself as robust and
-feature rich and has been widely deployed in the commercial drone
-industry and enjoys broad support among industry partners. The
-proposed introduction of the UAVCAN v1 protocol involved changes to
-UAVCAN that increased complexity and did not offer a smooth migration
-path for existing deployments. After extended discussions within the
-UAVCAN consortium it was decided that the best solution was to
-continue development of DroneCAN v0 under the name DroneCAN.
-
 ## Key Features
 
-The first version of DroneCAN, known as DroneCAN v1, is identical to the existing UAVCAN v0 protocol. This means that the large number of existing UAVCAN v0 devices used throughout the drone industry are already DroneCAN v1 compliant. Features inherited from UAVCAN v0 include:
+The first version of DroneCAN, known as DroneCAN v1, is identical to the older UAVCAN protocol. This means that the large number of existing UAVCAN devices used throughout the drone industry are already DroneCAN v1 compliant. Features inherited from UAVCAN include:
  - detailed protocol specification
  - DSDL message description language for message description
  - DNA (dynamic node allocation) for assignment of CAN node IDs
@@ -85,4 +73,16 @@ fill in the [application form](https://dronecan.org/apply)
     <td><a href="https://www.zeus-actuators.com/" target="_blank"><img src="image/zeus.png" alt="Zeus" width="256px"></a></td>
    </tr>
 </table>
+
+## History
+
+DroneCAN was created to continue the development of the widely used
+UAVCAN protocol. This protocol has proven itself as robust and feature
+rich and has been widely deployed in the commercial drone industry and
+enjoys broad support among industry partners. The proposed
+introduction of the UAVCAN v1 protocol (now known as cyphal) involved
+changes to UAVCAN that increased complexity and did not offer a smooth
+migration path for existing deployments. After extended discussions
+within the UAVCAN consortium it was decided that the best solution was
+to continue development of UAVCAN under the name DroneCAN.
 
