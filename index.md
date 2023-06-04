@@ -71,6 +71,16 @@ fill in the [application form](https://dronecan.org/apply)
   <tr>
     <td><a href="http://www.holybro.com/" target="_blank"><img src="image/holybro.png" alt="Holybro" width="256px"></a></td>
     <td><a href="https://www.zeus-actuators.com/" target="_blank"><img src="image/zeus.png" alt="Zeus" width="256px"></a></td>
+    <td><a href="https://bolderflight.com/" target="_blank"><img src="image/bolderflight.svg" alt="BolderFlight" width="256px"></a></td>
+   </tr>
+  <tr>
+    <td><a href="https://raccoonlab.co/" target="_blank"><img src="image/racoon.jpg" alt="Racoon" width="256px"></a></td>
+    <td><a href="https://www.alvaindustries.com/" target="_blank"><img src="image/alvaindustries.jpg" alt="AlvaIndustries" width="256px"></a></td>
+    <td><a href="https://krausaerospace.com/" target="_blank"><img src="image/kraus.jpg" alt="KrausHamdani" width="256px"></a></td>
+   </tr>
+  <tr>
+    <td><a href="https://dronebility.com/" target="_blank"><img src="image/droneability.jpg" alt="Droneability" width="256px"></a></td>
+    <td><a href="https://vectortechnics.com/" target="_blank"><img src="image/vectortechnics.jpg" alt="VectorTechnics" width="256px"></a></td>
    </tr>
 </table>
 
