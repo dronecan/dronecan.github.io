@@ -74,7 +74,7 @@ fill in the [application form](https://dronecan.org/apply)
     <td><a href="https://bolderflight.com/" target="_blank"><img src="image/bolderflight.svg" alt="BolderFlight" width="256px"></a></td>
    </tr>
   <tr>
-    <td><a href="https://raccoonlab.co/" target="_blank"><img src="image/racoon.jpg" alt="Racoon" width="256px"></a></td>
+    <td><a href="https://raccoonlab.co/" target="_blank"><img src="image/racoon.png" alt="Racoon" width="256px"></a></td>
     <td><a href="https://www.alvaindustries.com/" target="_blank"><img src="image/alvaindustries.jpg" alt="AlvaIndustries" width="256px"></a></td>
     <td><a href="https://krausaerospace.com/" target="_blank"><img src="image/kraus.jpg" alt="KrausHamdani" width="256px"></a></td>
    </tr>
