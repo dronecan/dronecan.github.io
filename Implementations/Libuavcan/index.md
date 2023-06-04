@@ -6,6 +6,11 @@ weight: 0
 
 {% include lightbox.html url="figures/libuavcan_data_flow.png" title="Libuavcan data flow" thumbnail=true %}
 
+NOTE: Libuavcan is not recommended for new implementations. Please use
+libcanard with the new canard C++ interface. Using libcanard results
+in a much lighter weight implementaion, reducing flash usage, memory
+and CPU
+
 Libuavcan is a portable, cross-platform library written in C++ with minimal dependency on the C++ standard library.
 It can be compiled by virtually any standard-compliant C++ compiler and can be used on virtually any architecture/OS.
 Libuavcan is free to use for anyone under the terms of the MIT open source license.
