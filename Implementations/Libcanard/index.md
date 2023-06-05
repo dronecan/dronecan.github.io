@@ -12,7 +12,7 @@ The documentation and the usage examples are contained right in the
 [source repository on Github](https://github.com/DroneCAN/libcanard).
 Please proceed to read it there.
 
-In particular please see the [example firmwares](https://github.com/DroneCAN/libcanard/examples).
+In particular please see the [example firmwares](https://github.com/dronecan/libcanard/tree/master/examples).
 
 ## Libcanard C++ interface
 
