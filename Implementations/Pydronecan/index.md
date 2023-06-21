@@ -14,4 +14,8 @@ The latest version of pydronecan can be installed using pip:
 pip install dronecan
 ```
 
-Please visit the [GitHub page](https://github.com/DroneCAN/pydronecan) for more information about contributing to pydronecan, or view the [tutorials](/Implementations/PyDroneCAN/Tutorials) for user-level documentation.
+Please visit the [GitHub page](https://github.com/DroneCAN/pydronecan)
+for more information about contributing to pydronecan, or view the
+[examples](https://github.com/dronecan/pydronecan/tree/master/examples)
+and [tools](https://github.com/dronecan/pydronecan/tree/master/tools)
+for useful example programs.
