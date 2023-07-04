@@ -81,6 +81,7 @@ fill in the [application form](https://dronecan.org/apply)
   <tr>
     <td><a href="https://dronebility.com/" target="_blank"><img src="image/droneability.png" alt="Droneability" width="256px"></a></td>
     <td><a href="https://vectortechnics.com/" target="_blank"><img src="image/vectortechnics.jpg" alt="VectorTechnics" width="256px"></a></td>
+    <td><a href="https://www.vimdrones.com/" target="_blank"><img src="image/vimdrones.png" alt="VimDrones" width="256px"></a></td>
    </tr>
 </table>
 
