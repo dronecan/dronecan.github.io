@@ -90,6 +90,12 @@ fill in the [application form](https://dronecan.org/apply)
    </tr>
   <tr>
     <td><a href="https://www.vertiq.co/" target="_blank"><img src="image/vertiq.png" alt="Vertiq" width="256px"></a></td>
+    <td><a href="https://linamik.com/" target="_blank"><img src="image/linamik.png" alt="Linamik" width="256px"></a></td>
+    <td><a href="https://www.makeflyeasy.com/" target="_blank"><img src="image/makeflyeasy.jpg" alt="Makeflyeasy" width="256px"></a></td>
+  </tr>
+  <tr>
+    <td><a href="https://www.aeroatoms.com/" target="_blank"><img src="image/aeroatoms.png" alt="Aeroatoms" width="256px"></a></td>
+    <td><a href="https://xlr8aerospace.com/" target="_blank"><img src="image/xlr8aerospace.jpg" alt="xlr8aerospace" width="256px"></a></td>
   </tr>
 </table>
 
